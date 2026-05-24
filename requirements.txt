@@ -1,0 +1,13 @@
+Django>=5.0
+djangorestframework
+djangorestframework-simplejwt
+django-filter
+drf-spectacular
+psycopg[binary]
+dj-database-url
+python-dotenv
+Pillow
+qrcode
+celery
+redis
+requests>=2.31
