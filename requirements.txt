@@ -11,3 +11,5 @@ qrcode
 celery
 redis
 requests>=2.31
+gunicorn
+whitenoise
