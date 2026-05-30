@@ -1,12 +1,51 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.translation import gettext_lazy as _
 
 from common.admin_mixins import CargoScopedAdminMixin
 from common.cargo_scoping import get_request_cargo_id
 
 from .models import SMSCode, User
+
+
+def _sms_code_badge(code, *, active=True):
+    if active:
+        color = "#15803d"
+        background = "#f0fdf4"
+    else:
+        color = "#94a3b8"
+        background = "#f8fafc"
+    return format_html(
+        '<span style="font-family: monospace; font-size: 16px; font-weight: 700; '
+        'letter-spacing: 0.25em; color: {}; background: {}; padding: 4px 10px; '
+        'border-radius: 6px;">{}</span>',
+        color,
+        background,
+        code,
+    )
+
+
+def _sms_status_badge(sms):
+    if sms.is_used:
+        label = _("Использован")
+        color = "#64748b"
+        background = "#f1f5f9"
+    elif sms.is_expired:
+        label = _("Истёк")
+        color = "#b45309"
+        background = "#fffbeb"
+    else:
+        label = _("Активен")
+        color = "#15803d"
+        background = "#f0fdf4"
+    return format_html(
+        '<span style="color: {}; background: {}; padding: 2px 8px; '
+        'border-radius: 999px; font-size: 12px; font-weight: 600;">{}</span>',
+        color,
+        background,
+        label,
+    )
 
 
 @admin.register(User)
@@ -77,9 +116,76 @@ class UserAdmin(CargoScopedAdminMixin, BaseUserAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            readonly.append("sms_codes_preview")
         if not request.user.is_superuser:
             readonly.append("is_cargo_admin")
         return readonly
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None:
+            fieldsets = list(fieldsets) + [
+                (_("SMS-коды"), {"fields": ("sms_codes_preview",)}),
+            ]
+        return fieldsets
+
+    def sms_codes_preview(self, obj):
+        if not obj or not obj.pk:
+            return "-"
+
+        codes = SMSCode.objects.filter(phone=obj.phone).order_by("-created_at")[:10]
+        if not codes:
+            return format_html(
+                '<p style="margin: 0; color: #64748b;">{}</p>',
+                _("Кодов для этого номера пока нет."),
+            )
+
+        rows = []
+        for sms in codes:
+            active = not sms.is_used and not sms.is_expired
+            rows.append(
+                format_html(
+                    "<tr>"
+                    '<td style="padding: 8px 12px;">{}</td>'
+                    '<td style="padding: 8px 12px;">{}</td>'
+                    '<td style="padding: 8px 12px;">{}</td>'
+                    '<td style="padding: 8px 12px;">{}</td>'
+                    '<td style="padding: 8px 12px; white-space: nowrap;">{}</td>'
+                    "</tr>",
+                    _sms_code_badge(sms.code, active=active),
+                    sms.get_purpose_display(),
+                    _sms_status_badge(sms),
+                    sms.expires_at.strftime("%d.%m.%Y %H:%M"),
+                    sms.created_at.strftime("%d.%m.%Y %H:%M"),
+                )
+            )
+
+        return format_html(
+            '<table style="border-collapse: collapse; width: 100%; max-width: 900px;">'
+            "<thead>"
+            '<tr style="background: #f8fafc; text-align: left;">'
+            '<th style="padding: 8px 12px;">{}</th>'
+            '<th style="padding: 8px 12px;">{}</th>'
+            '<th style="padding: 8px 12px;">{}</th>'
+            '<th style="padding: 8px 12px;">{}</th>'
+            '<th style="padding: 8px 12px;">{}</th>'
+            "</tr>"
+            "</thead>"
+            "<tbody>{}</tbody>"
+            "</table>"
+            '<p style="margin: 8px 0 0; color: #64748b; font-size: 12px;">{}</p>',
+            _("Код"),
+            _("Назначение"),
+            _("Статус"),
+            _("Истекает"),
+            _("Создан"),
+            format_html_join("", "{}", ((row,) for row in rows)),
+            _("Показаны последние 10 кодов для номера %(phone)s.")
+            % {"phone": obj.phone},
+        )
+
+    sms_codes_preview.short_description = _("Последние SMS-коды")
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "pickup_point":
@@ -148,42 +254,11 @@ class SMSCodeAdmin(admin.ModelAdmin):
         return False
 
     def code_display(self, obj):
-        if obj.is_used or obj.is_expired:
-            color = "#94a3b8"
-            background = "#f8fafc"
-        else:
-            color = "#15803d"
-            background = "#f0fdf4"
-        return format_html(
-            '<span style="font-family: monospace; font-size: 18px; font-weight: 700; '
-            'letter-spacing: 0.25em; color: {}; background: {}; padding: 4px 10px; '
-            'border-radius: 6px;">{}</span>',
-            color,
-            background,
-            obj.code,
-        )
+        return _sms_code_badge(obj.code, active=not obj.is_used and not obj.is_expired)
 
     code_display.short_description = _("Код")
 
     def status_display(self, obj):
-        if obj.is_used:
-            label = _("Использован")
-            color = "#64748b"
-            background = "#f1f5f9"
-        elif obj.is_expired:
-            label = _("Истёк")
-            color = "#b45309"
-            background = "#fffbeb"
-        else:
-            label = _("Активен")
-            color = "#15803d"
-            background = "#f0fdf4"
-        return format_html(
-            '<span style="color: {}; background: {}; padding: 2px 8px; '
-            'border-radius: 999px; font-size: 12px; font-weight: 600;">{}</span>',
-            color,
-            background,
-            label,
-        )
+        return _sms_status_badge(obj)
 
     status_display.short_description = _("Статус")
