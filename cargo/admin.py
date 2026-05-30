@@ -1,5 +1,7 @@
 from django.contrib import admin
 
+from common.cargo_scoping import get_request_cargo_id
+
 from .models import CargoCompany
 
 
@@ -20,6 +22,7 @@ class CargoCompanyAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        if request.user.cargo_id:
-            return qs.filter(pk=request.user.cargo_id)
+        cargo_id = get_request_cargo_id(request.user)
+        if cargo_id:
+            return qs.filter(pk=cargo_id)
         return qs.none()

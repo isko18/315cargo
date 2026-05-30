@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.html import format_html
 
 from common.admin_mixins import CargoScopedAdminMixin
+from common.cargo_scoping import get_request_cargo_id
 
 from .models import User
 
@@ -82,8 +83,9 @@ class UserAdmin(CargoScopedAdminMixin, BaseUserAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "pickup_point":
             qs = db_field.remote_field.model.objects.all()
-            if not request.user.is_superuser and request.user.cargo_id:
-                qs = qs.filter(cargo_id=request.user.cargo_id)
+            cargo_id = get_request_cargo_id(request.user)
+            if not request.user.is_superuser and cargo_id:
+                qs = qs.filter(cargo_id=cargo_id)
             kwargs["queryset"] = qs
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
