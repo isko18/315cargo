@@ -4,7 +4,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from common.cargo_scoping import filter_owned_queryset, filter_queryset_by_cargo
+from django.db.models import Q
+
+from common.cargo_scoping import filter_owned_queryset, get_request_cargo_id
 from common.permissions import IsOwnerOrStaff
 from parcels.models import Parcel
 
@@ -80,8 +82,15 @@ class CityDeliveryTariffViewSet(ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = CityDeliveryTariff.objects.filter(is_active=True).select_related(
-            "pickup_point", "pickup_point__cargo"
+            "pickup_point", "pickup_point__cargo", "cargo"
         )
-        return filter_queryset_by_cargo(
-            queryset, self.request.user, lookup="pickup_point__cargo"
-        )
+        cargo_id = get_request_cargo_id(self.request.user)
+        if cargo_id:
+            # Tariffs scoped to the cargo (via pickup point or directly), plus
+            # truly global tariffs (no cargo and no pickup point).
+            return queryset.filter(
+                Q(pickup_point__cargo_id=cargo_id)
+                | Q(cargo_id=cargo_id)
+                | Q(cargo__isnull=True, pickup_point__isnull=True)
+            )
+        return queryset

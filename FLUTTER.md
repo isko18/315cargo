@@ -1253,29 +1253,149 @@ Future<void> _openUrl(String url, OpenType type) async {
 
 ## 13. Интеграция Pinduoduo
 
-### Рекомендуемый UX
+### Архитектура (важно — проверено экспериментально)
 
-1. Экран «Подключить Pinduoduo»
-2. WebView с авторизацией на mobile.yangkeduo.com
-3. После успешного входа — извлечь cookies/session из WebView
-4. `POST /api/integrations/pinduoduo/connect/` с `session_data`
-5. Кнопка «Синхронизировать» → `POST .../sync/`
-6. Экран статуса → `GET .../status/`
+У Pinduoduo **нет публичного API для покупателя**, а запросы защищены анти-ботом
+(`anti-content`/`c-kf`/`verifyauthtoken` + проверка TLS-отпечатка). Серверный
+парсинг невозможен: бэкенд не может сгенерировать валидную подпись. **Поэтому
+парсинг идёт внутри WebView** — страница PDD сама подписывает свои запросы, а мы
+лишь **перехватываем ответ** `order_list_v4` и отправляем его на бэкенд. Ничего
+ломать/подделывать не нужно.
 
-### WebView cookie extraction (Android)
-
-```dart
-// После успешной авторизации в WebView:
-final cookies = await cookieManager.getCookies(
-  WebUri('https://mobile.yangkeduo.com'),
-);
-final sessionData = {
-  'cookies': cookies.map((c) => '${c.name}=${c.value}').join('; '),
-};
-await pinduoduoRepository.connect(sessionData);
+```
+WebView (реальное устройство, юзер залогинен 1 раз)
+  → грузит orders.html (можно скрыто/фоном при старте приложения)
+  → JS-hook перехватывает ОТВЕТ order_list_v4 (подпись валидна — её делает PDD)
+  → Flutter мапит заказы → POST /api/integrations/pinduoduo/ingest/
+бэкенд: маппинг → дедуп → авто-создание Parcel по трек-номеру
 ```
 
-> Конкретный формат `session_data` зависит от реализации `PinduoduoClient` на сервере.
+**Ограничения** (озвучить продукту): синк идёт, когда приложение открыто (или
+через background-fetch); сессия PDD протухает → при редиректе на логин шлём
+`POST /session-expired/` и просим клиента войти заново.
+
+### Рекомендуемый UX
+
+1. Экран «Подключить Pinduoduo» → кнопка открывает WebView с логином.
+2. Клиент входит сам (телефон + SMS — PDD обрабатывает капчу/анти-бот).
+3. После входа → `POST .../connect/` (просто помечаем подключённым).
+4. Дальше при запуске приложения — скрытый WebView грузит заказы и шлёт на `/ingest`.
+
+### Зависимость
+
+Для перехвата сетевых ответов и инъекции скрипта на старте документа используйте
+**`flutter_inappwebview`** (у `webview_flutter` нет надёжного перехвата ответов):
+
+```yaml
+dependencies:
+  flutter_inappwebview: ^6.1.5
+```
+
+### Перехват заказов из WebView
+
+```dart
+import 'dart:convert';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+
+// JS-хук: оборачивает fetch и XHR, ловит ответ order_list_v4 и отдаёт его в Flutter.
+const _hookJs = r"""
+(function () {
+  var TARGET = 'order_list_v4';
+  function send(body) {
+    try { window.flutter_inappwebview.callHandler('pddOrders', body); } catch (e) {}
+  }
+  var of = window.fetch;
+  window.fetch = function () {
+    var args = arguments;
+    return of.apply(this, args).then(function (resp) {
+      try {
+        var u = (args[0] && args[0].url) || args[0];
+        if (typeof u === 'string' && u.indexOf(TARGET) > -1) resp.clone().text().then(send);
+      } catch (e) {}
+      return resp;
+    });
+  };
+  var oOpen = XMLHttpRequest.prototype.open;
+  var oSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__u = u; return oOpen.apply(this, arguments); };
+  XMLHttpRequest.prototype.send = function () {
+    var self = this;
+    this.addEventListener('load', function () {
+      try { if (self.__u && self.__u.indexOf(TARGET) > -1) send(self.responseText); } catch (e) {}
+    });
+    return oSend.apply(this, arguments);
+  };
+})();
+""";
+
+class PinduoduoSyncWebView extends StatefulWidget {
+  const PinduoduoSyncWebView({super.key});
+  @override
+  State<PinduoduoSyncWebView> createState() => _PinduoduoSyncWebViewState();
+}
+
+class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
+  @override
+  Widget build(BuildContext context) {
+    return InAppWebView(
+      initialUrlRequest: URLRequest(url: WebUri('https://mobile.pinduoduo.com/orders.html')),
+      // Инъекция ДО загрузки страницы, чтобы наш хук обернул fetch раньше кода PDD.
+      initialUserScripts: UnmodifiableListView([
+        UserScript(source: _hookJs, injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
+      ]),
+      onWebViewCreated: (controller) {
+        controller.addJavaScriptHandler(
+          handlerName: 'pddOrders',
+          callback: (args) => _onOrdersJson(args.isNotEmpty ? args.first as String : ''),
+        );
+      },
+      onLoadStop: (controller, url) {
+        final u = url?.toString() ?? '';
+        // Редирект на логин/проверку → сессия протухла.
+        if (u.contains('login.html') || u.contains('psnl_verification')) {
+          pinduoduoRepository.markSessionExpired(); // POST /session-expired/
+        }
+      },
+    );
+  }
+
+  void _onOrdersJson(String raw) {
+    if (raw.isEmpty) return;
+    final data = jsonDecode(raw) as Map<String, dynamic>;
+    final pdoList = (data['orders'] as List?) ?? const [];
+    final orders = pdoList.map(_mapPddOrder).whereType<Map<String, dynamic>>().toList();
+    if (orders.isNotEmpty) {
+      pinduoduoRepository.ingest(orders); // POST /ingest/ {"orders":[...]}
+    }
+  }
+
+  // ⚠️ Имена полей PDD сверьте с реальным ответом order_list_v4 в DevTools.
+  // Контракт бэкенда стабилен: external_order_id (обяз.), product_title, price,
+  // quantity, status, track_number.
+  Map<String, dynamic>? _mapPddOrder(dynamic o) {
+    if (o is! Map) return null;
+    final sn = (o['order_sn'] ?? o['order_id'] ?? '').toString();
+    if (sn.isEmpty) return null;
+    final goods = (o['order_goods'] ?? o['goods'] ?? o['goods_list']) as List?;
+    final firstGoods = (goods != null && goods.isNotEmpty) ? goods.first as Map : const {};
+    return {
+      'external_order_id': sn,
+      'product_title': (firstGoods['goods_name'] ?? '').toString(),
+      'price': (o['order_amount'] ?? o['total_amount'])?.toString(),
+      'status': (o['order_status'] ?? o['order_status_prompt'] ?? '').toString(),
+      'track_number': (o['tracking_number'] ?? o['mail_no'] ?? '').toString(),
+      'raw': o,
+    };
+  }
+}
+```
+
+Репозиторий-методы — три простых POST на готовые эндпоинты:
+`connect()` → `/connect/`, `ingest(orders)` → `/ingest/` с телом `{"orders": [...]}`,
+`markSessionExpired()` → `/session-expired/`.
+
+> Сервер сам маппит/дедуплицирует заказы и создаёт `Parcel` по трек-номеру —
+> приложению достаточно переслать массив заказов из перехваченного ответа.
 
 ---
 

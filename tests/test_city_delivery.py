@@ -88,6 +88,19 @@ def test_estimate_endpoint(auth_client):
 
 
 @pytest.mark.django_db
+def test_tariff_isolated_to_its_cargo(auth_client):
+    from tests.factories import CargoCompanyFactory
+
+    # A general tariff bound to another cargo must NOT price our parcel.
+    other_cargo = CargoCompanyFactory()
+    CityDeliveryTariffFactory(cargo=other_cargo, is_default=True)
+    parcel = ParcelFactory(user=auth_client.user, weight=Decimal("2"))
+
+    price, tariff = calculate_price(parcel)
+    assert price is None and tariff is None
+
+
+@pytest.mark.django_db
 def test_cannot_create_for_other_user_parcel(auth_client):
     CityDeliveryTariffFactory()
     foreign_parcel = ParcelFactory()

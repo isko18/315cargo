@@ -15,6 +15,9 @@ def remember_old_status(sender, instance, **kwargs):
     instance._old_status = (
         Parcel.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
     )
+    # Stamp arrived_at / issued_at on full saves (admin edits, CSV import).
+    # Paths that save with update_fields handle it themselves.
+    instance.apply_status_timestamps()
 
 
 @receiver(post_save, sender=Parcel)

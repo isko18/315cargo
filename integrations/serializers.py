@@ -37,3 +37,9 @@ class PinduoduoOrderPayloadSerializer(serializers.Serializer):
 class PinduoduoWebhookSerializer(serializers.Serializer):
     client_code = serializers.CharField()
     orders = PinduoduoOrderPayloadSerializer(many=True)
+
+
+class PinduoduoIngestSerializer(serializers.Serializer):
+    """Заказы, перехваченные приложением клиента из WebView (путь B)."""
+
+    orders = PinduoduoOrderPayloadSerializer(many=True)

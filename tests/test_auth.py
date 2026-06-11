@@ -117,6 +117,74 @@ def test_same_phone_different_cargos(api_client):
 
 
 @pytest.mark.django_db
+def test_code_bound_to_cargo_cannot_verify_other_cargo(api_client):
+    """An OTP issued for cargo A must not authenticate the phone under cargo B."""
+    cargo_a = CargoCompanyFactory(slug="bind-a")
+    cargo_b = CargoCompanyFactory(slug="bind-b")
+    pp_b = PickupPointFactory(cargo=cargo_b)
+    phone = "+996700555555"
+
+    api_client.post(
+        "/api/auth/send-code/",
+        {"phone": phone, "cargo_id": cargo_a.id, "purpose": "register"},
+        format="json",
+    )
+    sms = SMSCode.objects.get(phone=phone)
+
+    # Same phone + same code, but a different cargo must be rejected.
+    response = api_client.post(
+        "/api/auth/verify-code/",
+        {
+            "phone": phone,
+            "code": sms.code,
+            "cargo_id": cargo_b.id,
+            "pickup_point_id": pp_b.id,
+            "full_name": "Чужой",
+        },
+        format="json",
+    )
+    assert response.status_code == 400
+    assert User.objects.filter(phone=phone).count() == 0
+
+
+@pytest.mark.django_db
+def test_otp_brute_force_locked_after_max_attempts(api_client, pickup_point):
+    from users.constants import MAX_OTP_ATTEMPTS
+
+    phone = "+996700666666"
+    api_client.post(
+        "/api/auth/send-code/",
+        {"phone": phone, "cargo_id": pickup_point.cargo_id, "purpose": "register"},
+        format="json",
+    )
+    sms = SMSCode.objects.get(phone=phone)
+    wrong_code = "0000" if sms.code != "0000" else "1111"
+
+    for _ in range(MAX_OTP_ATTEMPTS):
+        wrong = api_client.post(
+            "/api/auth/verify-code/",
+            {"phone": phone, "code": wrong_code, "cargo_id": pickup_point.cargo_id},
+            format="json",
+        )
+        assert wrong.status_code == 400
+
+    # Code is burned: even the correct code no longer works.
+    response = api_client.post(
+        "/api/auth/verify-code/",
+        {
+            "phone": phone,
+            "code": sms.code,
+            "cargo_id": pickup_point.cargo_id,
+            "pickup_point_id": pickup_point.id,
+            "full_name": "X",
+        },
+        format="json",
+    )
+    assert response.status_code == 400
+    assert User.objects.filter(phone=phone).count() == 0
+
+
+@pytest.mark.django_db
 def test_existing_user_login(api_client, user):
     api_client.post(
         "/api/auth/send-code/",
@@ -144,6 +212,27 @@ def test_refresh_token(api_client, user):
     )
     assert response.status_code == 200
     assert "access" in response.data
+
+
+@pytest.mark.django_db
+def test_refresh_rotates_and_blacklists_old_token(api_client, user):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    refresh = RefreshToken.for_user(user)
+    old_refresh = str(refresh)
+
+    response = api_client.post(
+        "/api/auth/refresh/", {"refresh": old_refresh}, format="json"
+    )
+    assert response.status_code == 200
+    new_refresh = response.data["refresh"]
+    assert new_refresh != old_refresh  # rotation happened
+
+    # The old refresh token must be blacklisted after rotation.
+    reuse = api_client.post(
+        "/api/auth/refresh/", {"refresh": old_refresh}, format="json"
+    )
+    assert reuse.status_code == 401
 
 
 @pytest.mark.django_db

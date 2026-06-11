@@ -149,6 +149,122 @@ class PinduoduoSyncService:
         )
         return self.account
 
+    # --- общий маппинг и сохранение заказов ---
+
+    def _order_defaults(self, payload: dict) -> dict:
+        mapped_status = SOURCE_STATUS_MAP.get(
+            (payload.get("status") or "").lower(), Order.Status.CREATED
+        )
+        return {
+            "user": self.user,
+            "source": Order.Source.PINDUODUO,
+            "product_url": payload.get("product_url", ""),
+            "product_title": payload.get("product_title", ""),
+            "price": _to_decimal(payload.get("price")),
+            "quantity": int(payload.get("quantity") or 1),
+            "status": mapped_status,
+            "track_number": (payload.get("track_number") or "").strip(),
+            "raw_data": payload.get("raw") or {},
+        }
+
+    def _sync_parcel_for_order(self, order):
+        """Создаёт/обновляет Parcel по трек-номеру заказа.
+
+        Не переписывает посылку, уже принадлежащую другому клиенту."""
+        from parcels.models import Parcel
+
+        track = (order.track_number or "").strip()
+        if not track:
+            return None
+        existing = Parcel.objects.filter(track_number=track).first()
+        if existing and existing.user_id != order.user_id:
+            return None
+        parcel, _ = Parcel.objects.update_or_create(
+            track_number=track,
+            defaults={
+                "user": order.user,
+                "order": order,
+                "client_code": order.user.client_code or "",
+            },
+        )
+        return parcel
+
+    def _apply_order(self, payload, *, result: SyncResult, create_parcels: bool):
+        if not isinstance(payload, dict):
+            result.errors.append("Пропуск: элемент заказа не является объектом")
+            return
+        external_id = (payload.get("external_order_id") or "").strip()
+        if not external_id:
+            result.errors.append("Пропуск: без external_order_id")
+            return
+        order, created = Order.objects.update_or_create(
+            user=self.user,
+            source=Order.Source.PINDUODUO,
+            external_order_id=external_id,
+            defaults=self._order_defaults(payload),
+        )
+        result.synced += 1
+        if created:
+            result.created += 1
+        else:
+            result.updated += 1
+        if create_parcels:
+            self._sync_parcel_for_order(order)
+
+    @transaction.atomic
+    def ingest_orders(self, orders, *, request=None, create_parcels: bool = True) -> SyncResult:
+        """Сохраняет заказы (OrderPayload[]) и создаёт по ним посылки.
+
+        Это путь B: заказы перехватываются приложением клиента из ответа
+        order_list_v4 в WebView и присылаются сюда (логин/anti-content делает
+        сама страница PDD, серверу подпись не нужна)."""
+        result = SyncResult()
+        if not isinstance(orders, list):
+            return SyncResult(message="orders должен быть списком")
+        for payload in orders:
+            self._apply_order(payload, result=result, create_parcels=create_parcels)
+        self.account.last_sync_at = timezone.now()
+        self.account.last_sync_error = ""
+        self.account.save(
+            update_fields=("last_sync_at", "last_sync_error", "updated_at")
+        )
+        log_audit(
+            AuditLog.Action.PINDUODUO_SYNCED,
+            actor=self.user,
+            target_user=self.user,
+            metadata={"ingest": True, "synced": result.synced, "created": result.created},
+            request=request,
+        )
+        if result.created > 0:
+            notify(
+                self.user,
+                title="Новые заказы Pinduoduo",
+                body=f"Добавлено новых заказов: {result.created}.",
+                type=NotificationType.PINDUODUO_SYNCED,
+                data={"created": result.created},
+            )
+        result.message = "ok"
+        return result
+
+    def mark_session_expired(self, *, request=None):
+        """Помечает аккаунт как требующий повторного входа и уведомляет клиента."""
+        self.account.is_connected = False
+        self.account.last_sync_error = "Сессия Pinduoduo истекла"
+        self.account.save(
+            update_fields=("is_connected", "last_sync_error", "updated_at")
+        )
+        notify(
+            self.user,
+            title="Pinduoduo: войдите заново",
+            body=(
+                "Сессия Pinduoduo истекла. Откройте Pinduoduo в приложении и "
+                "войдите снова, чтобы заказы продолжили синхронизироваться."
+            ),
+            type=NotificationType.SYSTEM,
+            data={"reason": "session_expired"},
+        )
+        return self.account
+
     @transaction.atomic
     def sync_orders(self, *, request=None) -> SyncResult:
         if not self.account.is_connected:
@@ -164,35 +280,7 @@ class PinduoduoSyncService:
             return SyncResult(message="Ошибка получения заказов", errors=[str(exc)])
 
         for payload in payloads:
-            external_id = (payload.get("external_order_id") or "").strip()
-            if not external_id:
-                result.errors.append("Пропуск: без external_order_id")
-                continue
-            mapped_status = SOURCE_STATUS_MAP.get(
-                (payload.get("status") or "").lower(), Order.Status.CREATED
-            )
-            defaults = {
-                "user": self.user,
-                "source": Order.Source.PINDUODUO,
-                "product_url": payload.get("product_url", ""),
-                "product_title": payload.get("product_title", ""),
-                "price": _to_decimal(payload.get("price")),
-                "quantity": int(payload.get("quantity") or 1),
-                "status": mapped_status,
-                "track_number": payload.get("track_number", ""),
-                "raw_data": payload.get("raw") or {},
-            }
-            order, created = Order.objects.update_or_create(
-                user=self.user,
-                source=Order.Source.PINDUODUO,
-                external_order_id=external_id,
-                defaults=defaults,
-            )
-            if created:
-                result.created += 1
-            else:
-                result.updated += 1
-            result.synced += 1
+            self._apply_order(payload, result=result, create_parcels=True)
 
         self.account.last_sync_at = timezone.now()
         self.account.last_sync_error = ""
@@ -224,6 +312,7 @@ class PinduoduoSyncService:
         result.message = "ok"
         return result
 
+    @transaction.atomic
     def ingest_webhook_payload(self, payload: dict, *, request=None) -> SyncResult:
         """Принимает массив заказов от внешнего сервера-парсера и сохраняет.
 
@@ -236,35 +325,7 @@ class PinduoduoSyncService:
             return SyncResult(message="orders должен быть списком")
 
         for order_payload in orders:
-            external_id = (order_payload.get("external_order_id") or "").strip()
-            if not external_id:
-                result.errors.append("Пропуск: без external_order_id")
-                continue
-            mapped_status = SOURCE_STATUS_MAP.get(
-                (order_payload.get("status") or "").lower(), Order.Status.CREATED
-            )
-            defaults = {
-                "user": self.user,
-                "source": Order.Source.PINDUODUO,
-                "product_url": order_payload.get("product_url", ""),
-                "product_title": order_payload.get("product_title", ""),
-                "price": _to_decimal(order_payload.get("price")),
-                "quantity": int(order_payload.get("quantity") or 1),
-                "status": mapped_status,
-                "track_number": order_payload.get("track_number", ""),
-                "raw_data": order_payload.get("raw") or {},
-            }
-            _, created = Order.objects.update_or_create(
-                user=self.user,
-                source=Order.Source.PINDUODUO,
-                external_order_id=external_id,
-                defaults=defaults,
-            )
-            result.synced += 1
-            if created:
-                result.created += 1
-            else:
-                result.updated += 1
+            self._apply_order(order_payload, result=result, create_parcels=True)
 
         self.account.last_sync_at = timezone.now()
         self.account.save(update_fields=("last_sync_at", "updated_at"))

@@ -40,6 +40,17 @@ class UserSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def validate_pickup_point(self, pickup_point):
+        # A client may only select a pickup point within their own cargo.
+        if pickup_point is None:
+            return pickup_point
+        user = self.instance
+        if user and user.cargo_id and pickup_point.cargo_id != user.cargo_id:
+            raise serializers.ValidationError(
+                "ПВЗ не принадлежит вашему карго-центру."
+            )
+        return pickup_point
+
 
 class SendCodeSerializer(serializers.Serializer):
     phone = serializers.CharField()

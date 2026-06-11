@@ -44,6 +44,16 @@ class Order(models.Model):
         ordering = ("-created_at",)
         verbose_name = _("Заказ")
         verbose_name_plural = _("Заказы")
+        constraints = [
+            # Guarantees order dedup at the DB level: the same supplier order
+            # cannot be ingested twice (webhook + sync race) for one user.
+            # Manual orders have a blank external_order_id and are exempt.
+            models.UniqueConstraint(
+                fields=("user", "source", "external_order_id"),
+                condition=~models.Q(external_order_id=""),
+                name="unique_order_per_source_external_id",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.user.phone} {self.product_title or self.external_order_id or self.id}"

@@ -36,6 +36,10 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
 
     def create(self, validated_data):
+        # `user` is always the authenticated requester (set in perform_create),
+        # never taken from the request body — a client cannot register a token
+        # on behalf of someone else. Re-registering a token re-binds it to the
+        # current user (device handoff) and reactivates it.
         user = validated_data["user"]
         token = validated_data["token"]
         instance, _ = DeviceToken.objects.update_or_create(

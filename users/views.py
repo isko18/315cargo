@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.audit import log_audit
@@ -58,7 +59,6 @@ class AuthViewSet(GenericViewSet):
         serializer = SendCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data.copy()
-        data.pop("cargo", None)
         send_sms_code(**data)
         payload = {"detail": "SMS code sent"}
         if settings.NIKITA_SMS_TEST:
@@ -86,7 +86,7 @@ class AuthViewSet(GenericViewSet):
         serializer = VerifyCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        verify_sms_code(data["phone"], data["code"])
+        verify_sms_code(data["phone"], data["code"], cargo=data["cargo"])
 
         user = User.objects.filter(phone=data["phone"], cargo=data["cargo"]).first()
         is_new_user = user is None
@@ -136,15 +136,16 @@ class AuthViewSet(GenericViewSet):
         throttle_classes=(AuthRateThrottle,),
     )
     def refresh(self, request):
-        serializer = RefreshTokenSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        # Use SimpleJWT's serializer so ROTATE_REFRESH_TOKENS /
+        # BLACKLIST_AFTER_ROTATION actually take effect: the old refresh token
+        # is blacklisted and a new one is issued. The previous implementation
+        # returned the same token, so rotation never happened.
+        serializer = TokenRefreshSerializer(data=request.data)
         try:
-            refresh = RefreshToken(serializer.validated_data["refresh"])
-            access = str(refresh.access_token)
-            new_refresh = str(refresh)
+            serializer.is_valid(raise_exception=True)
         except TokenError as exc:
             raise InvalidToken(exc.args[0]) from exc
-        return Response({"access": access, "refresh": new_refresh})
+        return Response(serializer.validated_data)
 
     @extend_schema(request=LogoutSerializer, responses={204: None})
     @action(

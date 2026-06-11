@@ -57,7 +57,13 @@ def _ensure_text_stream(file_obj: IO, encoding: str):
 
 
 @transaction.atomic
-def import_parcels_from_csv(file_obj: IO, encoding: str = "utf-8") -> ImportResult:
+def import_parcels_from_csv(file_obj: IO, encoding: str = "utf-8", cargo=None) -> ImportResult:
+    """Import parcels from a CSV stream.
+
+    ``cargo`` scopes the ``client_code`` lookup to a single cargo company so an
+    import cannot attach parcels to a client in another cargo (``client_code``
+    is unique only per cargo). Pass ``None`` only for a global superuser import.
+    """
     stream = _ensure_text_stream(file_obj, encoding)
     reader = csv.DictReader(stream)
     result = ImportResult()
@@ -73,10 +79,34 @@ def import_parcels_from_csv(file_obj: IO, encoding: str = "utf-8") -> ImportResu
             result.skipped += 1
             continue
 
-        user = User.objects.filter(client_code=client_code).first()
+        user_qs = User.objects.filter(client_code=client_code)
+        if cargo is not None:
+            user_qs = user_qs.filter(cargo=cargo)
+        matches = list(user_qs[:2])
+        if len(matches) > 1:
+            # Without a cargo scope the same client_code can exist in several
+            # cargos — refuse rather than guess the owner.
+            result.errors.append(
+                f"Строка {row_index}: код {client_code} найден в нескольких карго, "
+                f"импорт неоднозначен"
+            )
+            result.skipped += 1
+            continue
+        user = matches[0] if matches else None
         if not user:
             result.errors.append(
                 f"Строка {row_index}: клиент с кодом {client_code} не найден"
+            )
+            result.skipped += 1
+            continue
+
+        # Guard against reassigning an existing parcel to a different owner:
+        # update_or_create matches on track_number alone, so a row resolving to
+        # another client would otherwise silently steal the parcel.
+        existing = Parcel.objects.filter(track_number=track_number).first()
+        if existing and existing.user_id != user.id:
+            result.errors.append(
+                f"Строка {row_index}: трек {track_number} уже принадлежит другому клиенту"
             )
             result.skipped += 1
             continue

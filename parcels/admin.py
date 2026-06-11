@@ -69,8 +69,12 @@ class ParcelAdmin(admin.ModelAdmin):
             form = ParcelImportForm(request.POST, request.FILES)
             if form.is_valid():
                 encoding = form.cleaned_data.get("encoding") or "utf-8"
+                # Scope the client_code lookup to the importing admin's cargo so
+                # parcels cannot be attached to clients in another cargo. A
+                # global superuser (no cargo) imports across all cargos.
+                import_cargo = None if request.user.is_superuser else request.user.cargo
                 result = import_parcels_from_csv(
-                    request.FILES["csv_file"], encoding=encoding
+                    request.FILES["csv_file"], encoding=encoding, cargo=import_cargo
                 )
                 log_audit(
                     AuditLog.Action.PARCEL_IMPORTED,

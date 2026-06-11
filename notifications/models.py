@@ -13,6 +13,7 @@ class NotificationType(models.TextChoices):
     CITY_DELIVERY_STATUS_CHANGED = "city_delivery_status_changed", _("Изменение статуса доставки")
     PINDUODUO_CONNECTED = "pinduoduo_connected", _("Pinduoduo подключён")
     PINDUODUO_SYNCED = "pinduoduo_synced", _("Pinduoduo синхронизирован")
+    MARKETING = "marketing", _("Рекламное")
     SYSTEM = "system", _("Системное")
 
 
@@ -100,5 +101,6 @@ class NotificationPreference(models.Model):
             NotificationType.ORDER_STATUS_CHANGED: self.order_status_enabled,
             NotificationType.CITY_DELIVERY_CREATED: self.city_delivery_enabled,
             NotificationType.CITY_DELIVERY_STATUS_CHANGED: self.city_delivery_enabled,
+            NotificationType.MARKETING: self.marketing_enabled,
         }
         return mapping.get(notification_type, True)

@@ -11,11 +11,12 @@ class CityDeliveryTariffAdmin(admin.ModelAdmin):
         "price_per_kg",
         "free_weight_kg",
         "min_price",
+        "cargo",
         "pickup_point",
         "is_default",
         "is_active",
     )
-    list_filter = ("is_default", "is_active", "pickup_point")
+    list_filter = ("is_default", "is_active", "cargo", "pickup_point")
     search_fields = ("title",)
 
 

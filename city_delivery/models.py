@@ -27,6 +27,18 @@ class CityDeliveryTariff(models.Model):
     )
     is_default = models.BooleanField(_("По умолчанию"), default=False)
     is_active = models.BooleanField(_("Активен"), default=True)
+    cargo = models.ForeignKey(
+        "cargo.CargoCompany",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="city_delivery_tariffs",
+        verbose_name=_("Карго-центр"),
+        help_text=_(
+            "Карго, к которому относится тариф. Для общего тарифа (без ПВЗ) "
+            "ограничивает выбор этим карго."
+        ),
+    )
     pickup_point = models.ForeignKey(
         "pickup_points.PickupPoint",
         on_delete=models.SET_NULL,

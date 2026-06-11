@@ -52,8 +52,27 @@ class Parcel(models.Model):
         verbose_name = _("Посылка")
         verbose_name_plural = _("Посылки")
 
+    ARRIVED_STATUSES = (Status.ARRIVED_CHINA_WAREHOUSE, Status.ARRIVED_KYRGYZSTAN)
+
     def __str__(self):
         return self.track_number
+
+    def apply_status_timestamps(self):
+        """Stamp arrived_at / issued_at from the current status (idempotent).
+
+        Returns the list of field names that changed so callers using
+        ``save(update_fields=...)`` can include them.
+        """
+        from django.utils import timezone
+
+        changed = []
+        if self.status in self.ARRIVED_STATUSES and self.arrived_at is None:
+            self.arrived_at = timezone.now()
+            changed.append("arrived_at")
+        if self.status == self.Status.ISSUED and self.issued_at is None:
+            self.issued_at = timezone.now()
+            changed.append("issued_at")
+        return changed
 
 
 class ParcelStatusHistory(models.Model):

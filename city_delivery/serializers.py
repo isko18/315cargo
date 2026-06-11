@@ -21,6 +21,7 @@ class CityDeliveryTariffSerializer(serializers.ModelSerializer):
             "min_price",
             "is_default",
             "is_active",
+            "cargo",
             "pickup_point",
             "pickup_point_title",
         )

@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .constants import OTP_CODE_LENGTH
+from .constants import MAX_OTP_ATTEMPTS, OTP_CODE_LENGTH
 from .models import SMSCode, User
 from .sms import get_sms_backend
 from .sms.exceptions import SmsBackendError
@@ -55,11 +55,13 @@ def _generate_sms_message_id():
     return secrets.token_hex(6).upper()[:12]
 
 
-def send_sms_code(phone, purpose=SMSCode.Purpose.LOGIN):
+def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
     phone = validate_phone(phone)
+    # Throttle by phone+cargo (not purpose) so alternating purpose cannot
+    # double the SMS volume / number of outstanding valid codes.
     recent_code = SMSCode.objects.filter(
         phone=phone,
-        purpose=purpose,
+        cargo=cargo,
         created_at__gte=timezone.now() - timedelta(seconds=60),
     ).first()
     if recent_code:
@@ -90,6 +92,7 @@ def send_sms_code(phone, purpose=SMSCode.Purpose.LOGIN):
 
     sms_code = SMSCode.objects.create(
         phone=phone,
+        cargo=cargo,
         code=code,
         purpose=purpose,
         expires_at=SMSCode.default_expires_at(),
@@ -107,10 +110,28 @@ def send_sms_code(phone, purpose=SMSCode.Purpose.LOGIN):
     return sms_code
 
 
-def verify_sms_code(phone, code):
+def verify_sms_code(phone, code, cargo=None):
     phone = validate_phone(phone)
-    sms_code = SMSCode.objects.filter(phone=phone, code=code, is_used=False).first()
+    # Bind the code to the cargo it was issued for: a code sent for cargo A
+    # must not authenticate the same phone under cargo B. Only the most recent
+    # outstanding code is checkable, and each code allows a limited number of
+    # wrong guesses before it is burned (brute-force protection).
+    sms_code = (
+        SMSCode.objects.filter(phone=phone, cargo=cargo, is_used=False)
+        .order_by("-created_at")
+        .first()
+    )
     if not sms_code or sms_code.is_expired:
+        raise ValidationError("Invalid or expired SMS code")
+    if sms_code.attempts >= MAX_OTP_ATTEMPTS:
+        sms_code.is_used = True
+        sms_code.save(update_fields=("is_used",))
+        raise ValidationError("Too many attempts. Request a new code.")
+    if sms_code.code != code:
+        sms_code.attempts += 1
+        if sms_code.attempts >= MAX_OTP_ATTEMPTS:
+            sms_code.is_used = True
+        sms_code.save(update_fields=("attempts", "is_used"))
         raise ValidationError("Invalid or expired SMS code")
     sms_code.is_used = True
     sms_code.save(update_fields=("is_used",))

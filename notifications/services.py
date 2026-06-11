@@ -147,8 +147,20 @@ def notify(
     type: str = NotificationType.SYSTEM,
     data: dict | None = None,
     push: bool = True,
-) -> Notification:
-    """Convenience helper to create in-app notification and optionally send push."""
+) -> Notification | None:
+    """Create an in-app notification and optionally send push.
+
+    Respects the user's per-category preference (e.g. ``order_status_enabled``,
+    ``marketing_enabled``): a disabled category produces neither an in-app
+    record nor a push. ``push_enabled`` governs only push delivery, not the
+    in-app record (handled in ``send_push_notification``)."""
+    preference = get_or_create_preference(user)
+    if not preference.allows(type):
+        logger.info(
+            "Notification skipped by category preference",
+            extra={"user_id": user.id, "type": type},
+        )
+        return None
     notification = create_notification(user, title, body, type=type, data=data)
     if push:
         send_push_notification(user, title, body, data=data, type=type)
@@ -165,6 +177,6 @@ def notify_many(
 ) -> int:
     count = 0
     for user in users:
-        notify(user, title, body, type=type, data=data, push=push)
-        count += 1
+        if notify(user, title, body, type=type, data=data, push=push) is not None:
+            count += 1
     return count

@@ -125,10 +125,19 @@ class SMSCode(models.Model):
         REGISTER = "register", _("Регистрация")
         LOGIN = "login", _("Вход")
 
+    cargo = models.ForeignKey(
+        "cargo.CargoCompany",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="sms_codes",
+        verbose_name=_("Карго-центр"),
+    )
     phone = models.CharField(_("Телефон"), max_length=32, db_index=True)
     code = models.CharField(_("Код"), max_length=OTP_CODE_LENGTH)
     purpose = models.CharField(_("Назначение"), max_length=16, choices=Purpose.choices)
     is_used = models.BooleanField(_("Использован"), default=False)
+    attempts = models.PositiveSmallIntegerField(_("Попыток ввода"), default=0)
     expires_at = models.DateTimeField(_("Истекает"))
     provider_message_id = models.CharField(
         _("ID сообщения у провайдера"),

@@ -57,6 +57,25 @@ def test_preference_blocks_push(monkeypatch, user):
 
 
 @pytest.mark.django_db
+def test_marketing_notification_off_by_default(user):
+    # marketing_enabled defaults to False, so a marketing notification creates
+    # neither an in-app record nor a push.
+    result = notify(user, "Sale", "50% off", type=NotificationType.MARKETING)
+    assert result is None
+    assert not Notification.objects.filter(
+        user=user, type=NotificationType.MARKETING
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_disabled_category_skips_in_app(user):
+    NotificationPreference.objects.create(user=user, order_status_enabled=False)
+    result = notify(user, "T", "B", type=NotificationType.ORDER_STATUS_CHANGED)
+    assert result is None
+    assert not Notification.objects.filter(user=user, title="T").exists()
+
+
+@pytest.mark.django_db
 def test_notification_preference_endpoint(auth_client):
     response = auth_client.get("/api/profile/notification-preferences/")
     assert response.status_code == 200
