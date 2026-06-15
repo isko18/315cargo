@@ -17,9 +17,17 @@ class Parcel(models.Model):
         ISSUED = "issued", _("Выдан клиенту")
         CANCELLED = "cancelled", _("Отменён")
 
+    cargo = models.ForeignKey(
+        "cargo.CargoCompany",
+        on_delete=models.PROTECT,
+        related_name="parcels",
+        verbose_name=_("Карго-центр"),
+    )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="parcels",
         verbose_name=_("Клиент"),
     )

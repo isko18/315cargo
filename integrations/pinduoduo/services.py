@@ -182,6 +182,7 @@ class PinduoduoSyncService:
         parcel, _ = Parcel.objects.update_or_create(
             track_number=track,
             defaults={
+                "cargo_id": order.user.cargo_id,
                 "user": order.user,
                 "order": order,
                 "client_code": order.user.client_code or "",

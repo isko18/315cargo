@@ -61,5 +61,37 @@ def staff_client(api_client, staff_user):
 
 
 @pytest.fixture
+def cargo_admin(db, pickup_point):
+    return UserFactory(
+        pickup_point=pickup_point, cargo=pickup_point.cargo, is_cargo_admin=True
+    )
+
+
+@pytest.fixture
+def cargo_admin_client(api_client, cargo_admin):
+    refresh = RefreshToken.for_user(cargo_admin)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+    api_client.user = cargo_admin
+    return api_client
+
+
+@pytest.fixture
+def superuser(db):
+    from django.contrib.auth import get_user_model
+
+    return get_user_model().objects.create_superuser(
+        phone="+996700999999", password="secret123"
+    )
+
+
+@pytest.fixture
+def superuser_client(api_client, superuser):
+    refresh = RefreshToken.for_user(superuser)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+    api_client.user = superuser
+    return api_client
+
+
+@pytest.fixture
 def shop(db, user):
     return ShopFactory(cargo=user.cargo)

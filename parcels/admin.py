@@ -5,6 +5,7 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from common.admin_mixins import CargoScopedAdminMixin
 from common.audit import log_audit
 from common.models import AuditLog
 
@@ -31,9 +32,10 @@ class ParcelStatusHistoryInline(admin.TabularInline):
 
 
 @admin.register(Parcel)
-class ParcelAdmin(admin.ModelAdmin):
+class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "track_number",
+        "cargo",
         "user",
         "client_code",
         "status",
@@ -42,14 +44,14 @@ class ParcelAdmin(admin.ModelAdmin):
         "delivery_price",
         "created_at",
     )
-    list_filter = ("status", "created_at")
+    list_filter = ("status", "cargo", "created_at")
     search_fields = (
         "track_number",
         "client_code",
         "user__phone",
         "user__client_code",
     )
-    raw_id_fields = ("user", "order")
+    raw_id_fields = ("cargo", "user", "order")
     inlines = (ParcelStatusHistoryInline,)
     change_list_template = "admin/parcels/parcel/change_list.html"
 

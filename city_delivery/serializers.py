@@ -27,6 +27,39 @@ class CityDeliveryTariffSerializer(serializers.ModelSerializer):
         )
 
 
+class ManagedCityDeliveryTariffSerializer(serializers.ModelSerializer):
+    """CRUD тарифов для владельца карго. ``cargo`` проставляется во view."""
+
+    class Meta:
+        model = CityDeliveryTariff
+        fields = (
+            "id",
+            "title",
+            "base_price",
+            "price_per_kg",
+            "free_weight_kg",
+            "min_price",
+            "is_default",
+            "is_active",
+            "cargo",
+            "pickup_point",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "cargo", "created_at", "updated_at")
+
+    def validate_pickup_point(self, pickup_point):
+        request = self.context.get("request")
+        if (
+            pickup_point is not None
+            and request is not None
+            and not request.user.is_superuser
+            and pickup_point.cargo_id != request.user.cargo_id
+        ):
+            raise serializers.ValidationError("ПВЗ принадлежит другому карго-центру")
+        return pickup_point
+
+
 class CityDeliveryRequestSerializer(serializers.ModelSerializer):
     status_display_name = serializers.CharField(source="get_status_display", read_only=True)
     tariff_title = serializers.CharField(source="tariff.title", read_only=True)

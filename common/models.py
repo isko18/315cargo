@@ -11,6 +11,7 @@ class AuditLog(models.Model):
         USER_BLOCKED = "user_blocked", _("Блокировка клиента")
         USER_UNBLOCKED = "user_unblocked", _("Разблокировка клиента")
         PARCEL_IMPORTED = "parcel_imported", _("Импорт посылки")
+        PARCEL_SCANNED = "parcel_scanned", _("Сканирование посылки")
         PARCEL_STATUS_CHANGED = "parcel_status_changed", _("Смена статуса посылки")
         PARCEL_ISSUED = "parcel_issued", _("Выдача посылки")
         CITY_DELIVERY_CREATED = "city_delivery_created", _("Создана доставка по городу")

@@ -1060,6 +1060,57 @@ created → purchased → waiting_china_warehouse → arrived_china_warehouse
 
 ---
 
+### 9.X Эндпоинты для владельцев карго (роль `is_cargo_admin`)
+
+Доступны только пользователям с ролью владельца/админа карго (JWT того же пользователя; флаг приходит в `/api/profile/`). Клиентам возвращается `403`.
+
+**Сканер посылок (одно поле — трек-номер):**
+
+```
+POST /api/parcels/scan/
+{ "track_number": "LP00123456789CN" }     // status опционально
+```
+
+Ответ `200/201`:
+
+```json
+{ "result": "created_pending", "parcel": { "id": 12, "track_number": "...", "status": "arrived_china_warehouse", "user": null } }
+```
+
+`result` ∈ `updated` | `created_from_order` | `created_pending`. Трек из чужого карго → `409 {"code": "conflict"}`.
+
+Привязать pending-посылку к клиенту:
+
+```
+POST /api/parcels/{id}/assign/
+{ "client_code": "C1234567" }
+```
+
+**Панель управления:**
+
+| Метод | URL | Описание |
+|---|---|---|
+| GET/POST | `/api/manage/pickup-points/` | список/создание своих ПВЗ |
+| GET/PATCH/DELETE | `/api/manage/pickup-points/{id}/` | изменение/удаление ПВЗ |
+| GET/POST/PATCH/DELETE | `/api/manage/city-delivery-tariffs/` `…/{id}/` | тарифы доставки |
+| GET/PATCH | `/api/manage/cargo/` | профиль своего карго (без `slug`/`is_active`) |
+| GET | `/api/manage/dashboard/` | статистика своего карго |
+
+### 9.Y Эндпоинт главного владельца (суперпользователь)
+
+```
+GET /api/admin/overview/
+```
+
+```json
+{
+  "totals": { "cargo_count": 5, "active_cargo_count": 4, "user_count": 1200, "parcel_count": 8000, "order_count": 9000, "pickup_point_count": 18 },
+  "per_cargo": [ { "id": 1, "title": "Карго А", "slug": "cargo-a", "is_active": true, "users_count": 300, "parcels_count": 2000, "orders_count": 2200, "pickup_points_count": 5 } ]
+}
+```
+
+---
+
 ## 10. Экраны и навигация
 
 ### Рекомендуемая карта экранов

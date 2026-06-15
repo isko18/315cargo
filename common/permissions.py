@@ -25,3 +25,18 @@ class IsStaffOrReadOnly(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return user_is_cargo_manager(request.user)
+
+
+class IsCargoManager(BasePermission):
+    """Владелец/админ карго (или staff/superuser) — операции управления."""
+
+    def has_permission(self, request, view):
+        return user_is_cargo_manager(request.user)
+
+
+class IsSuperOwner(BasePermission):
+    """Главный владелец — глобальный суперпользователь."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_superuser)

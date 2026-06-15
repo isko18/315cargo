@@ -10,6 +10,7 @@ class ParcelSerializer(serializers.ModelSerializer):
         model = Parcel
         fields = (
             "id",
+            "cargo",
             "user",
             "order",
             "track_number",
@@ -25,7 +26,25 @@ class ParcelSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "user", "client_code", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "cargo",
+            "user",
+            "client_code",
+            "created_at",
+            "updated_at",
+        )
+
+
+class ParcelScanSerializer(serializers.Serializer):
+    track_number = serializers.CharField(max_length=128)
+    status = serializers.ChoiceField(
+        choices=Parcel.Status.choices, required=False, allow_blank=True
+    )
+
+
+class ParcelAssignSerializer(serializers.Serializer):
+    client_code = serializers.CharField(max_length=16)
 
 
 class ParcelStatusHistorySerializer(serializers.ModelSerializer):

@@ -89,6 +89,7 @@ class ParcelFactory(DjangoModelFactory):
         model = Parcel
 
     user = factory.SubFactory(UserFactory)
+    cargo = factory.LazyAttribute(lambda o: o.user.cargo)
     track_number = factory.Sequence(lambda n: f"TRACK{n:08d}")
     client_code = factory.LazyAttribute(lambda o: o.user.client_code or "C0000000")
     status = Parcel.Status.CREATED

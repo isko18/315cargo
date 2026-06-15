@@ -6,8 +6,10 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from django.db.models import Q
 
+from rest_framework.exceptions import ValidationError
+
 from common.cargo_scoping import filter_owned_queryset, get_request_cargo_id
-from common.permissions import IsOwnerOrStaff
+from common.permissions import IsCargoManager, IsOwnerOrStaff
 from parcels.models import Parcel
 
 from .models import CityDeliveryRequest, CityDeliveryTariff
@@ -16,6 +18,7 @@ from .serializers import (
     CityDeliveryEstimateResponseSerializer,
     CityDeliveryRequestSerializer,
     CityDeliveryTariffSerializer,
+    ManagedCityDeliveryTariffSerializer,
 )
 from .services import calculate_price
 
@@ -94,3 +97,28 @@ class CityDeliveryTariffViewSet(ReadOnlyModelViewSet):
                 | Q(cargo__isnull=True, pickup_point__isnull=True)
             )
         return queryset
+
+
+class ManagedCityDeliveryTariffViewSet(ModelViewSet):
+    """Панель владельца карго: CRUD тарифов своего карго."""
+
+    serializer_class = ManagedCityDeliveryTariffSerializer
+    permission_classes = (IsAuthenticated, IsCargoManager)
+    queryset = CityDeliveryTariff.objects.none()
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return CityDeliveryTariff.objects.none()
+        queryset = CityDeliveryTariff.objects.select_related("pickup_point", "cargo")
+        cargo_id = get_request_cargo_id(self.request.user)
+        if cargo_id:
+            return queryset.filter(cargo_id=cargo_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        cargo = self.request.user.cargo
+        if cargo is None:
+            raise ValidationError(
+                "Создание тарифа доступно только владельцу карго-центра"
+            )
+        serializer.save(cargo=cargo)

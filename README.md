@@ -108,6 +108,29 @@ Beat расписание: `integrations.sync_all_pinduoduo_accounts` кажды
 - `GET /api/parcels/{id}/`
 - `GET /api/parcels/{id}/history/`
 
+### Сканер посылок (только владелец/админ карго)
+
+Быстрая загрузка посылок «одним полем» — сканируется трек-номер.
+
+- `POST /api/parcels/scan/` — тело `{"track_number": "...", "status"?: "..."}`. Логика:
+  - трек уже есть в этом карго → статус продвигается (по умолчанию `arrived_china_warehouse`), `result=updated`;
+  - есть заказ с таким треком → создаётся привязанная посылка, `result=created_from_order`;
+  - иначе создаётся «непривязанная» (pending) посылка без клиента, `result=created_pending`;
+  - трек уже зарегистрирован в другом карго → `409 conflict`.
+  - Суперпользователь обязан передать `cargo` (id) в теле/`?cargo=`.
+- `POST /api/parcels/{id}/assign/` — тело `{"client_code": "..."}`: привязать pending-посылку к клиенту своего карго.
+
+### Панель владельца карго (только владелец/админ карго)
+
+- `GET/POST /api/manage/pickup-points/`, `GET/PATCH/DELETE /api/manage/pickup-points/{id}/` — CRUD своих ПВЗ.
+- `GET/POST /api/manage/city-delivery-tariffs/`, `.../{id}/` — CRUD тарифов доставки.
+- `GET/PATCH /api/manage/cargo/` — профиль своего карго (название, лого, телефон, адрес; `slug`/`is_active` неизменяемы).
+- `GET /api/manage/dashboard/` — статистика своего карго (клиенты, ПВЗ, заказы, посылки по статусам, pending-сканы).
+
+### Панель главного владельца (суперпользователь)
+
+- `GET /api/admin/overview/` — сводка: `totals` (карго всего/активных, пользователи, посылки, заказы, ПВЗ) и `per_cargo` (по каждому карго: клиенты, посылки, заказы, ПВЗ).
+
 ### Доставка по городу
 
 - `POST /api/city-delivery/` — создать заявку. Цена и тариф рассчитываются автоматически по весу посылки и ПВЗ клиента.

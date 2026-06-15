@@ -10,8 +10,17 @@ from drf_spectacular.views import (
 )
 from rest_framework.routers import DefaultRouter
 
-from cargo.views import CargoCompanyViewSet
-from city_delivery.views import CityDeliveryRequestViewSet, CityDeliveryTariffViewSet
+from cargo.views import (
+    AdminOverviewAPIView,
+    CargoCompanyViewSet,
+    CargoDashboardAPIView,
+    MyCargoAPIView,
+)
+from city_delivery.views import (
+    CityDeliveryRequestViewSet,
+    CityDeliveryTariffViewSet,
+    ManagedCityDeliveryTariffViewSet,
+)
 from integrations.pinduoduo.views import PinduoduoIntegrationViewSet
 from notifications.views import (
     DeviceTokenViewSet,
@@ -20,7 +29,7 @@ from notifications.views import (
 )
 from orders.views import OrderViewSet
 from parcels.views import ParcelViewSet
-from pickup_points.views import PickupPointViewSet
+from pickup_points.views import ManagedPickupPointViewSet, PickupPointViewSet
 from shops.views import ShopViewSet
 from users.views import AuthViewSet, ProfileAPIView, ProfileQRAPIView
 
@@ -36,6 +45,14 @@ router.register("city-delivery-tariffs", CityDeliveryTariffViewSet, basename="ci
 router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
+router.register(
+    "manage/pickup-points", ManagedPickupPointViewSet, basename="manage-pickup-points"
+)
+router.register(
+    "manage/city-delivery-tariffs",
+    ManagedCityDeliveryTariffViewSet,
+    basename="manage-city-delivery-tariffs",
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -46,6 +63,13 @@ urlpatterns = [
         NotificationPreferenceAPIView.as_view(),
         name="notification-preferences",
     ),
+    path("api/manage/cargo/", MyCargoAPIView.as_view(), name="manage-cargo"),
+    path(
+        "api/manage/dashboard/",
+        CargoDashboardAPIView.as_view(),
+        name="manage-dashboard",
+    ),
+    path("api/admin/overview/", AdminOverviewAPIView.as_view(), name="admin-overview"),
     path("api/", include(router.urls)),
 ]
 

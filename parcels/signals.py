@@ -36,6 +36,10 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
         changed_by=changed_by,
     )
 
+    # Pending-посылки сканера ещё не привязаны к клиенту — уведомлять некого.
+    if instance.user_id is None:
+        return
+
     display_name = instance.get_status_display()
     data = {
         "parcel_id": instance.id,

@@ -120,6 +120,7 @@ def import_parcels_from_csv(file_obj: IO, encoding: str = "utf-8", cargo=None) -
             continue
 
         defaults = {
+            "cargo_id": user.cargo_id,
             "user": user,
             "client_code": client_code,
             "status": status,
