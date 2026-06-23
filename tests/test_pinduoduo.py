@@ -142,9 +142,9 @@ def test_ingest_raw_pdd_filters_and_parses(auth_client):
     from parcels.models import Parcel
 
     raw_orders = [
-        {  # ждёт отправки, оплачено 0.98
+        {  # ждёт отправки (непривычный текст без «待发货») — всё равно сохраняем
             "order_sn": "260624-AAA",
-            "order_status_prompt": "免拼成功，待发货",
+            "order_status_prompt": "等待商家发货",
             "order_amount": 98,
             "tracking_number": "",
             "order_goods": [{"goods_name": "Органайзер", "goods_number": 1}],
