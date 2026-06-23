@@ -81,6 +81,7 @@ WebView (реальное устройство, клиент залогинен 
 # pubspec.yaml
 dependencies:
   flutter_inappwebview: ^6.1.5
+  flutter_secure_storage: ^9.2.2   # хранение cookies сессии PDD
 ```
 
 Android: убедиться, что в `AndroidManifest.xml` есть `INTERNET` permission (обычно есть).
@@ -142,7 +143,16 @@ const pddInterceptHookJs = r"""
 
 ## 6. Экран привязки (логин)
 
+> ⚠️ **Не определяйте вход по URL.** Когда клиент запрашивает SMS-код, PDD
+> переводит страницу на промежуточный URL (ввод кода), который уже не содержит
+> `login.html` — и наивная проверка «не на логине → вошёл» срабатывает ложно,
+> экран закрывается с «Подключено» ещё до ввода кода.
+>
+> **Надёжный признак входа — появление cookie `PDDAccessToken`** (она есть только
+> после успешного логина). Проверяем именно её.
+
 ```dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -154,6 +164,44 @@ class PinduoduoConnectScreen extends StatefulWidget {
 
 class _PinduoduoConnectScreenState extends State<PinduoduoConnectScreen> {
   bool _connected = false;
+  final _cookieManager = CookieManager.instance();
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    // Запасной вариант: PDD логинит через AJAX без навигации — события
+    // onLoadStop/onUpdateVisitedHistory тогда не приходят. Опрашиваем cookie
+    // каждые 2 сек, пока экран открыт.
+    _poll = Timer.periodic(const Duration(seconds: 2), (_) => _checkLogin());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  // Вход подтверждён, только если есть непустой PDDAccessToken.
+  Future<bool> _isLoggedIn() async {
+    final cookies = await _cookieManager.getCookies(
+      url: WebUri('https://mobile.pinduoduo.com'),
+    );
+    return cookies.any(
+      (c) => c.name == 'PDDAccessToken' && (c.value?.toString().isNotEmpty ?? false),
+    );
+  }
+
+  Future<void> _checkLogin() async {
+    if (_connected || !mounted) return;
+    if (await _isLoggedIn()) {
+      _connected = true;
+      _poll?.cancel();
+      await PddSession.save();             // сохраняем cookies сессии (см. §8)
+      await pinduoduoRepository.connect(); // POST /connect/
+      if (mounted) Navigator.of(context).pop(true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -163,16 +211,10 @@ class _PinduoduoConnectScreenState extends State<PinduoduoConnectScreen> {
         initialUrlRequest: URLRequest(
           url: WebUri('https://mobile.pinduoduo.com/login.html'),
         ),
-        onLoadStop: (controller, url) async {
-          final u = url?.toString() ?? '';
-          // Ушли со страницы логина (на личный кабинет/заказы) → вошли успешно.
-          final loggedIn = !u.contains('login.html') && !u.contains('psnl_verification');
-          if (loggedIn && !_connected) {
-            _connected = true;
-            await pinduoduoRepository.connect();    // POST /connect/
-            if (mounted) Navigator.of(context).pop(true);
-          }
-        },
+        // Проверяем cookie при загрузке и смене URL; таймер выше — на случай
+        // входа без навигации.
+        onLoadStop: (controller, url) => _checkLogin(),
+        onUpdateVisitedHistory: (controller, url, isReload) => _checkLogin(),
       ),
     );
   }
@@ -191,11 +233,28 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-class PinduoduoSyncWebView extends StatelessWidget {
+class PinduoduoSyncWebView extends StatefulWidget {
   const PinduoduoSyncWebView({super.key});
+  @override
+  State<PinduoduoSyncWebView> createState() => _PinduoduoSyncWebViewState();
+}
+
+class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ВАЖНО: восстановить cookies сессии ДО загрузки страницы, иначе orders.html
+    // откроется разлогиненным и редиректнёт на login.
+    PddSession.restore().then((_) {
+      if (mounted) setState(() => _ready = true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (!_ready) return const SizedBox.shrink(); // ждём восстановления cookies
     // Скрытый 1x1 — клиент его не видит.
     return SizedBox(
       width: 1, height: 1,
@@ -220,6 +279,9 @@ class PinduoduoSyncWebView extends StatelessWidget {
           // Редирект на логин/проверку → сессия протухла.
           if (u.contains('login.html') || u.contains('psnl_verification')) {
             pinduoduoRepository.markSessionExpired(); // POST /session-expired/
+          } else {
+            // PDD мог обновить cookies — пересохраняем, продлевая сессию.
+            PddSession.save();
           }
         },
       ),
@@ -261,7 +323,84 @@ class PinduoduoSyncWebView extends StatelessWidget {
 
 ---
 
-## 8. Репозиторий (Dio)
+## 8. Сохранение сессии (cookies) — иначе после перезапуска разлогинит
+
+`PDDAccessToken` обычно **session-cookie без срока жизни** — он не переживает
+перезапуск приложения и не всегда виден другому WebView-инстансу. Поэтому после
+логина мы **сами сохраняем** cookies PDD в secure storage и **восстанавливаем** их
+перед sync-WebView, проставляя срок жизни (превращаем session-cookie в постоянный).
+
+```dart
+import 'dart:convert';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+class PddSession {
+  static const _key = 'pdd_cookies';
+  static const _storage = FlutterSecureStorage();
+  static final _cm = CookieManager.instance();
+  static final _url = WebUri('https://mobile.pinduoduo.com');
+
+  /// Сохранить текущие cookies PDD (вызывать после логина и после каждого синка).
+  static Future<void> save() async {
+    final cookies = await _cm.getCookies(url: _url);
+    if (cookies.isEmpty) return;
+    final data = cookies
+        .map((c) => {
+              'name': c.name,
+              'value': c.value,
+              'domain': c.domain,
+              'path': c.path ?? '/',
+              'isSecure': c.isSecure ?? true,
+            })
+        .toList();
+    await _storage.write(key: _key, value: jsonEncode(data));
+  }
+
+  /// Восстановить cookies в WebView перед загрузкой orders.html.
+  /// Возвращает false, если сохранённой сессии нет.
+  static Future<bool> restore() async {
+    final raw = await _storage.read(key: _key);
+    if (raw == null) return false;
+    final list = jsonDecode(raw) as List;
+    // Проставляем срок ~30 дней, чтобы cookie стал постоянным и пережил перезапуск.
+    final expires = DateTime.now()
+        .add(const Duration(days: 30))
+        .millisecondsSinceEpoch;
+    for (final c in list) {
+      final m = c as Map<String, dynamic>;
+      if ((m['value'] ?? '').toString().isEmpty) continue;
+      await _cm.setCookie(
+        url: _url,
+        name: m['name'] as String,
+        value: m['value'] as String,
+        domain: m['domain'] as String?,
+        path: (m['path'] as String?) ?? '/',
+        expiresDate: expires,
+        isSecure: (m['isSecure'] as bool?) ?? true,
+      );
+    }
+    await _cm.flush(); // сбросить cookie store на диск
+    return list.isNotEmpty;
+  }
+
+  /// Полный сброс (при «отключить Pinduoduo» / протухшей сессии).
+  static Future<void> clear() async {
+    await _storage.delete(key: _key);
+    await _cm.deleteCookies(url: _url);
+  }
+}
+```
+
+Использование:
+- в экране логина (§6) — после `connect()` вызвать `PddSession.save()`;
+- в sync-WebView (§7) — `PddSession.restore()` в `initState` **до** загрузки;
+- после каждого успешного синка — `PddSession.save()` (PDD обновляет cookies → продлеваем сессию);
+- при «отключить» / `session-expired` — `PddSession.clear()`.
+
+---
+
+## 9. Репозиторий (Dio)
 
 ```dart
 class PinduoduoRepository {
@@ -291,7 +430,7 @@ class PinduoduoRepository {
 
 ---
 
-## 9. Что нужно доделать тебе (Flutter)
+## 10. Что нужно доделать тебе (Flutter)
 
 1. Подставить реальные имена полей в `_mapPddOrder`: открой `orders.html` в
    мобильном Chrome (DevTools → Network), найди ответ `order_list_v4` и посмотри
@@ -304,10 +443,12 @@ class PinduoduoRepository {
 
 ---
 
-## 10. Чеклист проверки
+## 11. Чеклист проверки
 
 - [ ] Логин в WebView проходит (клиент видит свой кабинет PDD).
 - [ ] После логина пришёл `POST /connect/` (status → `is_connected: true`).
+- [ ] **Сессия переживает перезапуск приложения**: закрыть/открыть приложение →
+      sync-WebView НЕ редиректит на login (cookies восстановились из storage).
 - [ ] Скрытый WebView ловит ответ `order_list_v4` (JS-handler `pddOrders` срабатывает).
 - [ ] `POST /ingest/` вернул `created > 0`, заказы появились в приложении (`/api/orders/`).
 - [ ] У заказов с трек-номером появились посылки (`/api/parcels/`).
