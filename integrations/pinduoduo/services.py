@@ -179,15 +179,17 @@ class PinduoduoSyncService:
         prompt = str(raw.get("order_status_prompt") or "")
         track = str(raw.get("tracking_number") or "").strip()
 
-        # Фильтр по тексту статуса PDD.
+        # Фильтр по тексту статуса PDD. Нужны: ждёт отправки, в пути, получен.
         if any(k in prompt for k in ("取消", "待付款", "待支付", "退款")):
-            return None  # отменён / не оплачен / возврат
-        if track or any(k in prompt for k in ("待收货", "已发货", "运输", "已送达")):
+            return None  # отменён / не оплачен / возврат — НЕ парсим
+        if any(k in prompt for k in ("交易成功", "已完成", "已收货", "已签收")):
+            status = "delivered"  # получен (проверяем раньше «待收货»)
+        elif track or any(k in prompt for k in ("待收货", "已发货", "运输", "已送达")):
             status = "shipped"  # отправлен / в пути
         elif any(k in prompt for k in ("待发货", "待分享", "拼单")):
             status = "paid"  # оплачен, ждёт отправки
         else:
-            return None  # завершён/неизвестный — не нужен
+            return None  # неизвестный — не нужен
 
         goods = raw.get("order_goods")
         goods = goods if isinstance(goods, list) else []
@@ -254,10 +256,17 @@ class PinduoduoSyncService:
         if not isinstance(payload, dict):
             result.errors.append("Пропуск: элемент заказа не является объектом")
             return
-        # Сырой заказ из order_list_v4 (есть order_sn, нет нормализованного поля)
-        # → разбираем и фильтруем на сервере.
-        if payload.get("order_sn") and not payload.get("external_order_id"):
-            payload = self._normalize_pdd_order(payload)
+        # Достаём сырой заказ PDD: либо сам payload (order_sn в корне), либо
+        # вложенный payload["raw"] (старое приложение шлёт нормализованный объект
+        # с сырым заказом внутри). Так фильтр/цена/статус работают независимо от
+        # версии приложения.
+        pdd_raw = None
+        if payload.get("order_sn"):
+            pdd_raw = payload
+        elif isinstance(payload.get("raw"), dict) and payload["raw"].get("order_sn"):
+            pdd_raw = payload["raw"]
+        if pdd_raw is not None:
+            payload = self._normalize_pdd_order(pdd_raw)
             if payload is None:
                 return  # отменён / не оплачен / не нужен — молча пропускаем
         external_id = (payload.get("external_order_id") or "").strip()

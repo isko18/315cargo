@@ -187,6 +187,46 @@ def test_ingest_raw_pdd_filters_and_parses(auth_client):
 
 
 @pytest.mark.django_db
+def test_ingest_normalized_with_raw_is_filtered(auth_client):
+    # Старое приложение шлёт нормализованный payload, но с сырым заказом в `raw`.
+    # Сервер всё равно фильтрует по raw и проставляет статус/цену.
+    payload = {
+        "orders": [
+            {  # отменённый внутри raw → отбрасывается, несмотря на external_order_id
+                "external_order_id": "260622-CANCEL",
+                "status": "created",
+                "raw": {
+                    "order_sn": "260622-CANCEL",
+                    "order_status_prompt": "交易已取消",
+                    "order_amount": 81480,
+                    "order_goods": [{"goods_name": "X", "goods_number": 1}],
+                },
+            },
+            {  # получен → сохраняется как ARRIVED_CHINA_WAREHOUSE
+                "external_order_id": "260620-DONE",
+                "status": "created",
+                "raw": {
+                    "order_sn": "260620-DONE",
+                    "order_status_prompt": "交易成功",
+                    "order_amount": 5000,
+                    "tracking_number": "LP-DONE",
+                    "order_goods": [{"goods_name": "Готово", "goods_number": 1}],
+                },
+            },
+        ]
+    }
+    r = auth_client.post(
+        "/api/integrations/pinduoduo/ingest/", payload, format="json"
+    )
+    assert r.status_code == 200, r.data
+    assert r.data["created"] == 1  # отменённый отфильтрован
+    assert not Order.objects.filter(external_order_id="260622-CANCEL").exists()
+    done = Order.objects.get(external_order_id="260620-DONE")
+    assert done.status == Order.Status.ARRIVED_CHINA_WAREHOUSE  # получен
+    assert str(done.price) == "50.00"
+
+
+@pytest.mark.django_db
 def test_ingest_dedup_and_parcel_owner_guard(auth_client):
     from parcels.models import Parcel
     from tests.factories import ParcelFactory

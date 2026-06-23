@@ -34,7 +34,9 @@ class ParcelStatusHistoryInline(admin.TabularInline):
 @admin.register(Parcel)
 class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
     list_display = (
+        "product_thumb",
         "track_number",
+        "product_title",
         "cargo",
         "user",
         "client_code",
@@ -45,6 +47,21 @@ class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("status", "cargo", "created_at")
+
+    @admin.display(description="Товар")
+    def product_title(self, obj):
+        return (obj.order.product_title or "")[:60] if obj.order_id else "-"
+
+    @admin.display(description="Фото")
+    def product_thumb(self, obj):
+        raw = getattr(obj.order, "raw_data", None) if obj.order_id else None
+        goods = raw.get("order_goods") if isinstance(raw, dict) else None
+        url = None
+        if isinstance(goods, list) and goods and isinstance(goods[0], dict):
+            url = goods[0].get("thumb_url") or goods[0].get("hd_thumb_url")
+        if url:
+            return format_html('<img src="{}" style="height:40px;border-radius:4px"/>', url)
+        return "-"
     search_fields = (
         "track_number",
         "client_code",
