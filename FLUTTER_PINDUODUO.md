@@ -165,14 +165,12 @@ class PinduoduoConnectScreen extends StatefulWidget {
 class _PinduoduoConnectScreenState extends State<PinduoduoConnectScreen> {
   bool _connected = false;
   final _cookieManager = CookieManager.instance();
+  InAppWebViewController? _controller;
   Timer? _poll;
 
   @override
   void initState() {
     super.initState();
-    // Запасной вариант: PDD логинит через AJAX без навигации — события
-    // onLoadStop/onUpdateVisitedHistory тогда не приходят. Опрашиваем cookie
-    // каждые 2 сек, пока экран открыт.
     _poll = Timer.periodic(const Duration(seconds: 2), (_) => _checkLogin());
   }
 
@@ -182,37 +180,54 @@ class _PinduoduoConnectScreenState extends State<PinduoduoConnectScreen> {
     super.dispose();
   }
 
-  // Вход подтверждён, только если есть непустой PDDAccessToken.
+  // Вход подтверждён, если есть непустой PDDAccessToken (или pdd_user_id).
+  // ВАЖНО: на iOS обязательно передавать webViewController, иначе getCookies
+  // читает из пустого общего хранилища и всегда вернёт [].
   Future<bool> _isLoggedIn() async {
+    if (_controller == null) return false;
     final cookies = await _cookieManager.getCookies(
       url: WebUri('https://mobile.pinduoduo.com'),
+      webViewController: _controller, // ← ключевая правка
     );
-    return cookies.any(
-      (c) => c.name == 'PDDAccessToken' && (c.value?.toString().isNotEmpty ?? false),
-    );
+    // ДИАГНОСТИКА: видно в консоли, какие cookies реально пришли.
+    debugPrint('PDD cookies: ${cookies.map((c) => c.name).toList()}');
+    bool has(String n) =>
+        cookies.any((c) => c.name == n && (c.value?.toString().isNotEmpty ?? false));
+    return has('PDDAccessToken') || has('pdd_user_id');
+  }
+
+  Future<void> _finish() async {
+    if (_connected || !mounted) return;
+    _connected = true;
+    _poll?.cancel();
+    await PddSession.save(_controller);   // сохраняем cookies сессии (см. §8)
+    await pinduoduoRepository.connect();  // POST /connect/
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   Future<void> _checkLogin() async {
     if (_connected || !mounted) return;
-    if (await _isLoggedIn()) {
-      _connected = true;
-      _poll?.cancel();
-      await PddSession.save();             // сохраняем cookies сессии (см. §8)
-      await pinduoduoRepository.connect(); // POST /connect/
-      if (mounted) Navigator.of(context).pop(true);
-    }
+    if (await _isLoggedIn()) await _finish();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Подключить Pinduoduo')),
+      appBar: AppBar(
+        title: const Text('Подключить Pinduoduo'),
+        actions: [
+          // Фолбэк: если авто-детект не сработал, но клиент видит, что вошёл.
+          TextButton(
+            onPressed: _finish,
+            child: const Text('Готово', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
       body: InAppWebView(
         initialUrlRequest: URLRequest(
           url: WebUri('https://mobile.pinduoduo.com/login.html'),
         ),
-        // Проверяем cookie при загрузке и смене URL; таймер выше — на случай
-        // входа без навигации.
+        onWebViewCreated: (c) => _controller = c,
         onLoadStop: (controller, url) => _checkLogin(),
         onUpdateVisitedHistory: (controller, url, isReload) => _checkLogin(),
       ),
@@ -241,6 +256,7 @@ class PinduoduoSyncWebView extends StatefulWidget {
 
 class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
   bool _ready = false;
+  InAppWebViewController? _controller;
 
   @override
   void initState() {
@@ -268,6 +284,7 @@ class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
           ),
         ]),
         onWebViewCreated: (controller) {
+          _controller = controller;
           controller.addJavaScriptHandler(
             handlerName: 'pddOrders',
             callback: (args) =>
@@ -281,7 +298,7 @@ class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
             pinduoduoRepository.markSessionExpired(); // POST /session-expired/
           } else {
             // PDD мог обновить cookies — пересохраняем, продлевая сессию.
-            PddSession.save();
+            PddSession.save(_controller);
           }
         },
       ),
@@ -357,8 +374,10 @@ class PddSession {
   static final _url = WebUri('https://mobile.pinduoduo.com');
 
   /// Сохранить текущие cookies PDD (вызывать после логина и после каждого синка).
-  static Future<void> save() async {
-    final cookies = await _cm.getCookies(url: _url);
+  /// На iOS обязательно передавать controller, иначе getCookies вернёт [].
+  static Future<void> save([InAppWebViewController? controller]) async {
+    final cookies =
+        await _cm.getCookies(url: _url, webViewController: controller);
     if (cookies.isEmpty) return;
     final data = cookies
         .map((c) => {
