@@ -292,84 +292,47 @@ class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
     if (raw.isEmpty) return;
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
-      final list = (data['orders'] as List?) ?? const [];
       final orders =
-          list.map(_mapPddOrder).whereType<Map<String, dynamic>>().toList();
+          (data['orders'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
+      // Шлём СЫРЫЕ заказы как есть — сервер сам распарсит цену/статус,
+      // отфильтрует отменённые/неоплаченные и создаст посылки.
       if (orders.isNotEmpty) {
         pinduoduoRepository.ingest(orders); // POST /ingest/
       }
     } catch (_) {/* битый JSON — игнор */}
   }
-
-  // Маппинг реального ответа order_list_v4 → OrderPayload бэкенда.
-  // (поля подставлены по живому ответу PDD; при изменениях PDD скорректировать)
-  Map<String, dynamic>? _mapPddOrder(dynamic order) {
-    if (order is! Map) return null;
-    final sn = (order['order_sn'] ?? '').toString();
-    if (sn.isEmpty) return null;
-
-    final goods = (order['order_goods'] as List?) ?? const [];
-    // Название: имена всех товаров через " | " (в заказе может быть несколько).
-    final title = goods
-        .map((g) => (g as Map)['goods_name']?.toString() ?? '')
-        .where((s) => s.isNotEmpty)
-        .join(' | ');
-    // Количество: сумма goods_number по всем товарам.
-    final qty = goods.fold<int>(
-        0, (s, g) => s + (((g as Map)['goods_number'] as num?)?.toInt() ?? 0));
-
-    // ВАЖНО: суммы у PDD в копейках (фэнях): 81480 → 814.80.
-    final amountCents = (order['order_amount'] as num?)?.toInt() ?? 0;
-
-    return {
-      'external_order_id': sn,
-      'product_title': title.length > 250 ? title.substring(0, 250) : title,
-      'price': (amountCents / 100).toStringAsFixed(2),
-      'quantity': qty > 0 ? qty : 1,
-      'status': _pddStatus(order),
-      'track_number': (order['tracking_number'] ?? '').toString(),
-      'raw': order, // полный объект заказа → бэкенд сохранит в raw_data
-    };
-  }
-
-  // Статус PDD → токены бэкенда (SOURCE_STATUS_MAP). Надёжнее всего — по тексту
-  // order_status_prompt; число order_status неоднозначно.
-  String _pddStatus(Map o) {
-    final p = (o['order_status_prompt'] ?? '').toString();
-    final track = (o['tracking_number'] ?? '').toString();
-    if (p.contains('取消')) return 'cancelled';                          // отменён
-    if (p.contains('待付款') || p.contains('待支付')) return 'pending_payment'; // ждёт оплаты
-    if (track.isNotEmpty ||
-        p.contains('待收货') || p.contains('已发货') || p.contains('运输')) {
-      return 'shipped';                                                 // отправлен → в пути
-    }
-    if (p.contains('完成') || p.contains('成功') && p.contains('交易')) {
-      return 'delivered';                                               // получен/завершён
-    }
-    if (p.contains('待发货') || p.contains('待分享') || p.contains('拼单') ||
-        o['pay_status'] == 1) {
-      return 'paid';                                                    // оплачен, ждёт отправки
-    }
-    return 'pending_payment';
-  }
 }
 ```
 
-### Поля `order_list_v4` → OrderPayload (по живому ответу)
+> **Разбор заказов теперь на сервере.** Приложение НЕ мапит поля — шлёт сырой
+> массив `orders` из `order_list_v4`. Сервер делает: цена `order_amount/100`,
+> статус по `order_status_prompt`, **фильтр** (берёт только «ждёт отправки» и
+> «в пути», отбрасывает отменённые/неоплаченные/завершённые), создаёт `Parcel`
+> по `tracking_number`. Это значит: правки логики разбора не требуют пересборки
+> приложения. Если нужно менять, какие статусы сохранять — это в бэкенде,
+> `PinduoduoSyncService._normalize_pdd_order`.
 
-| PDD | OrderPayload | Примечание |
+### Поля `order_list_v4`, которые читает сервер
+
+| PDD | Order | Примечание |
 |---|---|---|
 | `order_sn` | `external_order_id` | номер заказа, напр. `260622-129520125451352` |
 | `order_goods[].goods_name` | `product_title` | имена всех товаров через ` \| ` |
 | `order_goods[].goods_number` | `quantity` | сумма по товарам |
 | `order_amount` | `price` | **в копейках** → делить на 100 (`81480` → `814.80`) |
 | `tracking_number` | `track_number` | если непусто → бэкенд создаст `Parcel` |
-| `order_status_prompt` / `shipping_status` / `pay_status` | `status` | грубый маппинг в `_pddStatus` |
-| весь объект | `raw` | сохраняется в `Order.raw_data` |
+| `order_status_prompt` | `status` | по тексту: 待发货→`paid`, 待收货/已发货→`shipped` (`PURCHASED`) |
+| весь объект | `raw_data` | сохраняется целиком |
 
-> В присланном примере все заказы — `交易已取消` (отменены) и без трека, поэтому
-> посылки по ним не создаются. У **оплаченных/отправленных** заказов будет
-> непустой `tracking_number` → по нему автоматически создастся `Parcel`.
+**Фильтр на сервере** (`_normalize_pdd_order`): сохраняются только заказы со
+статусом `待发货` (ждёт отправки) и `待收货/已发货/运输` (в пути). Отбрасываются:
+`交易已取消` (отменён), `待付款/待支付` (не оплачен), `退款` (возврат) и завершённые.
+
+**Заказ = посылка.** Для каждого сохранённого заказа создаётся `Parcel` (одна на
+заказ). Идентификатор посылки — реальный `tracking_number`; пока его нет (заказ
+ждёт отправки) используется номер заказа `order_sn`, а когда придёт реальный
+трек — он автоматически заменяет временный.
+
 > Доп. поля для будущего: `order_goods[].thumb_url` (картинка), `goods_price`
 > (цена за шт. в копейках), `mall.mall_name` (магазин), `order_time` (unix).
 

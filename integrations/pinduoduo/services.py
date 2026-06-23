@@ -167,33 +167,99 @@ class PinduoduoSyncService:
             "raw_data": payload.get("raw") or {},
         }
 
-    def _sync_parcel_for_order(self, order):
-        """Создаёт/обновляет Parcel по трек-номеру заказа.
+    def _normalize_pdd_order(self, raw: dict):
+        """Сырой заказ order_list_v4 → нормализованный payload, либо None.
 
-        Не переписывает посылку, уже принадлежащую другому клиенту."""
+        Возвращает None для заказов, которые НЕ нужны (отменён, не оплачен,
+        возврат). Оставляем только реально оплаченные: «ждут отправки» и «в пути».
+        """
+        sn = str(raw.get("order_sn") or "").strip()
+        if not sn:
+            return None
+        prompt = str(raw.get("order_status_prompt") or "")
+        track = str(raw.get("tracking_number") or "").strip()
+
+        # Фильтр по тексту статуса PDD.
+        if any(k in prompt for k in ("取消", "待付款", "待支付", "退款")):
+            return None  # отменён / не оплачен / возврат
+        if track or any(k in prompt for k in ("待收货", "已发货", "运输", "已送达")):
+            status = "shipped"  # отправлен / в пути
+        elif any(k in prompt for k in ("待发货", "待分享", "拼单")):
+            status = "paid"  # оплачен, ждёт отправки
+        else:
+            return None  # завершён/неизвестный — не нужен
+
+        goods = raw.get("order_goods")
+        goods = goods if isinstance(goods, list) else []
+        title = " | ".join(
+            str(g.get("goods_name") or "")
+            for g in goods
+            if isinstance(g, dict) and g.get("goods_name")
+        )
+        qty = sum(
+            int(g.get("goods_number") or 0) for g in goods if isinstance(g, dict)
+        )
+        # Суммы PDD в фэнях (копейках): 98 → 0.98, 81480 → 814.80.
+        amount = raw.get("order_amount")
+        price = None
+        if isinstance(amount, (int, float)):
+            price = (Decimal(str(amount)) / 100).quantize(Decimal("0.01"))
+
+        return {
+            "external_order_id": sn,
+            "product_title": title[:250],
+            "price": price,
+            "quantity": qty or 1,
+            "status": status,
+            "track_number": track,
+            "raw": raw,
+        }
+
+    def _sync_parcel_for_order(self, order):
+        """Создаёт посылку для заказа PDD — одна посылка на заказ (заказ = посылка).
+
+        Идентификатор посылки — реальный трек-номер; пока его нет (заказ ждёт
+        отправки) используем номер заказа (order_sn). Когда придёт реальный трек —
+        он заменяет временный. Чужие посылки не трогаем."""
         from parcels.models import Parcel
 
-        track = (order.track_number or "").strip()
-        if not track:
+        real_track = (order.track_number or "").strip()
+        parcel_track = real_track or (order.external_order_id or "").strip()
+        if not parcel_track:
             return None
-        existing = Parcel.objects.filter(track_number=track).first()
-        if existing and existing.user_id != order.user_id:
-            return None
-        parcel, _ = Parcel.objects.update_or_create(
-            track_number=track,
-            defaults={
-                "cargo_id": order.user.cargo_id,
-                "user": order.user,
-                "order": order,
-                "client_code": order.user.client_code or "",
-            },
-        )
+
+        parcel = Parcel.objects.filter(order=order).first()
+        if parcel is None:
+            clash = Parcel.objects.filter(track_number=parcel_track).first()
+            if clash:
+                return clash if clash.order_id == order.id else None
+            return Parcel.objects.create(
+                order=order,
+                user=order.user,
+                cargo_id=order.user.cargo_id,
+                client_code=order.user.client_code or "",
+                track_number=parcel_track,
+            )
+        # Посылка уже есть: при появлении реального трека обновляем идентификатор.
+        if (
+            real_track
+            and parcel.track_number != real_track
+            and not Parcel.objects.filter(track_number=real_track).exclude(pk=parcel.pk).exists()
+        ):
+            parcel.track_number = real_track
+            parcel.save(update_fields=("track_number", "updated_at"))
         return parcel
 
     def _apply_order(self, payload, *, result: SyncResult, create_parcels: bool):
         if not isinstance(payload, dict):
             result.errors.append("Пропуск: элемент заказа не является объектом")
             return
+        # Сырой заказ из order_list_v4 (есть order_sn, нет нормализованного поля)
+        # → разбираем и фильтруем на сервере.
+        if payload.get("order_sn") and not payload.get("external_order_id"):
+            payload = self._normalize_pdd_order(payload)
+            if payload is None:
+                return  # отменён / не оплачен / не нужен — молча пропускаем
         external_id = (payload.get("external_order_id") or "").strip()
         if not external_id:
             result.errors.append("Пропуск: без external_order_id")

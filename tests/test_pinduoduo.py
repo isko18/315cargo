@@ -132,8 +132,58 @@ def test_ingest_creates_orders_and_parcels(auth_client):
     assert parcel.user_id == user.id
     assert parcel.order.external_order_id == "ING-1"
     assert parcel.client_code == user.client_code
-    # У заказа без трека посылки нет.
-    assert not Parcel.objects.filter(order__external_order_id="ING-2").exists()
+    # Заказ без реального трека тоже даёт посылку — по номеру заказа.
+    p2 = Parcel.objects.get(order__external_order_id="ING-2")
+    assert p2.track_number == "ING-2"
+
+
+@pytest.mark.django_db
+def test_ingest_raw_pdd_filters_and_parses(auth_client):
+    from parcels.models import Parcel
+
+    raw_orders = [
+        {  # ждёт отправки, оплачено 0.98
+            "order_sn": "260624-AAA",
+            "order_status_prompt": "免拼成功，待发货",
+            "order_amount": 98,
+            "tracking_number": "",
+            "order_goods": [{"goods_name": "Органайзер", "goods_number": 1}],
+        },
+        {  # отменён — должен быть отброшен
+            "order_sn": "260622-CANCEL",
+            "order_status_prompt": "交易已取消",
+            "order_amount": 81480,
+            "order_goods": [{"goods_name": "X", "goods_number": 10}],
+        },
+        {  # в пути, с треком → создастся посылка
+            "order_sn": "260620-SHIP",
+            "order_status_prompt": "待收货",
+            "order_amount": 105730,
+            "tracking_number": "LP-TRACK-1",
+            "order_goods": [{"goods_name": "Сканер", "goods_number": 2}],
+        },
+    ]
+    r = auth_client.post(
+        "/api/integrations/pinduoduo/ingest/", {"orders": raw_orders}, format="json"
+    )
+    assert r.status_code == 200, r.data
+    assert r.data["created"] == 2  # отменённый отфильтрован
+
+    user = auth_client.user
+    paid = Order.objects.get(user=user, external_order_id="260624-AAA")
+    assert str(paid.price) == "0.98"            # цена поделена на 100
+    assert paid.status == Order.Status.PAID
+    assert paid.product_title == "Органайзер"
+    # посылка создаётся и для «ждёт отправки» — по номеру заказа (трека ещё нет)
+    assert Parcel.objects.filter(track_number="260624-AAA", user=user).exists()
+    # отменённый не сохранён
+    assert not Order.objects.filter(external_order_id="260622-CANCEL").exists()
+
+    ship = Order.objects.get(user=user, external_order_id="260620-SHIP")
+    assert str(ship.price) == "1057.30"
+    assert ship.status == Order.Status.PURCHASED
+    # по заказу в пути с треком создана посылка
+    assert Parcel.objects.filter(track_number="LP-TRACK-1", user=user).exists()
 
 
 @pytest.mark.django_db

@@ -40,6 +40,10 @@ class PinduoduoWebhookSerializer(serializers.Serializer):
 
 
 class PinduoduoIngestSerializer(serializers.Serializer):
-    """Заказы, перехваченные приложением клиента из WebView (путь B)."""
+    """Заказы из WebView (путь B). Принимаем СЫРЫЕ объекты order_list_v4 —
+    разбор (цена/статус/фильтр) делается на сервере, чтобы правки не требовали
+    пересборки приложения."""
 
-    orders = PinduoduoOrderPayloadSerializer(many=True)
+    orders = serializers.ListField(
+        child=serializers.DictField(), allow_empty=True
+    )
