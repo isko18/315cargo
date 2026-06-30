@@ -257,23 +257,34 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-// JS: кликает по вкладкам заказов, чтобы PDD дёрнул order_list_v4 для активных.
-const _pddClickTabsJs = r"""
+// JS: АВТОМАТИЧЕСКИ проходит вкладки заказов + скроллит каждую (грузит все
+// страницы), чтобы PDD сам сделал order_list_v4 для всех активных заказов.
+// Клиент ничего не нажимает — всё делает скрипт.
+const _pddAutoSyncJs = r"""
 (function(tabs){
   var i = 0;
   function clickTab(t){
     var els = document.querySelectorAll('div,span,a,li');
     for (var k=0;k<els.length;k++){
-      var el = els[k];
-      var txt = (el.textContent||'').trim();
-      // вкладка: текст начинается с названия, короткий (допускаем бейдж "1"), видимый
+      var el = els[k], txt = (el.textContent||'').trim();
+      // вкладка: текст начинается с названия, короткий (бейдж "1" ок), видимый
       if (txt.indexOf(t)===0 && txt.length <= t.length+3 && el.offsetParent!==null){
         el.click(); return true;
       }
     }
     return false;
   }
-  function step(){ if (i<tabs.length){ clickTab(tabs[i]); i++; setTimeout(step, 1800);} }
+  function scroll(n, cb){
+    var k=0;
+    var iv=setInterval(function(){
+      window.scrollTo(0, document.body.scrollHeight);
+      window.dispatchEvent(new Event('scroll'));
+      if(++k>=n){ clearInterval(iv); cb&&cb(); }
+    }, 700);
+  }
+  function step(){
+    if(i<tabs.length){ clickTab(tabs[i]); i++; setTimeout(function(){ scroll(4, step); }, 1200); }
+  }
   step();
 })(['待收货','待发货','全部']);
 """;
@@ -360,8 +371,8 @@ class _PinduoduoSyncScreenState extends State<PinduoduoSyncScreen> {
             return;
           }
           await PddSession.save(_c);            // продлеваем сессию
-          // Кликаем вкладки → PDD отдаёт order_list_v4 активных заказов.
-          await controller.evaluateJavascript(source: _pddClickTabsJs);
+          // Авто: проходим вкладки + скроллим → PDD отдаёт order_list_v4 всех заказов.
+          await controller.evaluateJavascript(source: _pddAutoSyncJs);
         },
       ),
     );
@@ -369,12 +380,38 @@ class _PinduoduoSyncScreenState extends State<PinduoduoSyncScreen> {
 }
 ```
 
-> Открываешь этот экран кнопкой «Обновить заказы PDD»; он грузит orders.html,
-> прокликивает вкладки, ловит `order_list_v4` и шлёт **сырые** заказы на `/ingest`.
-> Сервер сам парсит цену (`order_amount/100`), статус (`order_status_prompt`),
+> Экран грузит orders.html, **сам** проходит вкладки + скроллит (клиент ничего не
+> нажимает), ловит `order_list_v4` и шлёт **сырые** заказы на `/ingest`. Сервер
+> сам парсит цену (`order_amount/100`), статус (`order_status_prompt`),
 > **фильтрует** (ждёт отправки / в пути / получен — да; отменённые — нет) и
 > создаёт `Parcel` по `tracking_number`. Приложение поля НЕ мапит. Менять логику
 > разбора → бэкенд, `PinduoduoSyncService._normalize_pdd_order` (без пересборки).
+
+### Авто-запуск (без кнопки)
+
+Чтобы синк шёл сам при заходе на «Заказы»/«Посылки» (клиент один раз привязал —
+дальше ничего не делает):
+
+```dart
+@override
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addPostFrameCallback((_) => _autoSyncPdd());
+}
+
+Future<void> _autoSyncPdd() async {
+  try {
+    final st = await pinduoduoRepository.status();
+    if (st['is_connected'] != true || !mounted) return;   // не подключён — пропуск
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const PinduoduoSyncScreen()));
+    await _reloadParcels();                                // обновить список после синка
+  } catch (_) {}
+}
+```
+
+Экран «Синхронизация…» мелькнёт на пару секунд и закроется сам. На 1×1 спрятать
+нельзя (PDD не грузит список), но можно прикрыть полупрозрачным оверлеем.
 
 ### Поля `order_list_v4`, которые читает сервер
 
@@ -537,3 +574,171 @@ class PinduoduoRepository {
 - [ ] У заказов с трек-номером появились посылки (`/api/parcels/`).
 - [ ] Повторный синк не плодит дубли (`created: 0, updated: N`).
 - [ ] При протухшей сессии летит `/session-expired/` и приходит уведомление.
+
+---
+
+## 12. Экран списка посылок (карточки)
+
+`GET /api/parcels/` уже отдаёт по каждой посылке: `track_number`, `status`,
+`status_display_name`, и из связанного заказа — `product_title`, `product_price`,
+`product_image`. Рисуем карточки.
+
+### Модель + репозиторий
+
+```dart
+class Parcel {
+  final int id;
+  final String trackNumber, status, statusName, title;
+  final String? image;
+  final num? price;
+  Parcel({required this.id, required this.trackNumber, required this.status,
+    required this.statusName, required this.title, this.image, this.price});
+
+  factory Parcel.fromJson(Map<String, dynamic> j) => Parcel(
+    id: j['id'],
+    trackNumber: (j['track_number'] ?? '').toString(),
+    status: (j['status'] ?? '').toString(),
+    statusName: (j['status_display_name'] ?? '').toString(),
+    title: (j['product_title'] ?? '').toString(),
+    image: j['product_image'] as String?,
+    price: j['product_price'] is String
+        ? num.tryParse(j['product_price']) : j['product_price'] as num?,
+  );
+}
+
+class ParcelRepository {
+  final Dio dio; // с JWT
+  ParcelRepository(this.dio);
+
+  Future<List<Parcel>> list() async {
+    final r = await dio.get('/api/parcels/');
+    // DRF может отдавать список или {results:[...]} при пагинации.
+    final data = r.data is Map ? (r.data['results'] ?? []) : r.data;
+    return (data as List).map((e) => Parcel.fromJson(e)).toList();
+  }
+}
+```
+
+### Экран
+
+```dart
+class ParcelsScreen extends StatefulWidget {
+  const ParcelsScreen({super.key});
+  @override State<ParcelsScreen> createState() => _ParcelsScreenState();
+}
+
+class _ParcelsScreenState extends State<ParcelsScreen> {
+  late Future<List<Parcel>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = parcelRepository.list();
+    // авто-синк PDD при заходе (см. §7 «Авто-запуск»)
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoSyncPdd());
+  }
+
+  Future<void> _reload() async {
+    final f = parcelRepository.list();
+    setState(() => _future = f);
+    await f;
+  }
+
+  Future<void> _autoSyncPdd() async {
+    try {
+      final st = await pinduoduoRepository.status();
+      if (st['is_connected'] != true || !mounted) return;
+      await Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const PinduoduoSyncScreen()));
+      await _reload();
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Мои посылки'),
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _reload)],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _reload,
+        child: FutureBuilder<List<Parcel>>(
+          future: _future,
+          builder: (_, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final items = snap.data ?? const [];
+            if (items.isEmpty) {
+              return ListView(children: const [
+                SizedBox(height: 120),
+                Center(child: Text('Посылок пока нет')),
+              ]);
+            }
+            return ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) => _ParcelCard(items[i]),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ParcelCard extends StatelessWidget {
+  final Parcel p;
+  const _ParcelCard(this.p);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: p.image != null
+                ? Image.network(p.image!, width: 64, height: 64, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const _Ph())
+                : const _Ph(),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p.title.isEmpty ? p.trackNumber : p.title,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text('Трек: ${p.trackNumber}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 6),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Chip(label: Text(p.statusName, style: const TextStyle(fontSize: 11)),
+                  visualDensity: VisualDensity.compact),
+              if (p.price != null)
+                Text('¥${p.price!.toStringAsFixed(2)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+            ]),
+          ])),
+        ]),
+      ),
+    );
+  }
+}
+
+class _Ph extends StatelessWidget {
+  const _Ph();
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 64, height: 64, color: Colors.black12,
+    child: const Icon(Icons.inventory_2_outlined, color: Colors.black38));
+}
+```
+
+Карточка показывает: **фото товара, название, трек, статус, цену**. Pull-to-refresh
+и кнопка обновления дёргают `/api/parcels/`; при заходе автоматически запускается
+PDD-синк (если аккаунт привязан).
