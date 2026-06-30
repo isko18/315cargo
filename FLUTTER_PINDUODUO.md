@@ -238,88 +238,143 @@ class _PinduoduoConnectScreenState extends State<PinduoduoConnectScreen> {
 
 ---
 
-## 7. Фоновый перехват заказов (скрытый WebView)
+## 7. Sync-экран (перехват заказов)
 
-Вызывать при старте приложения / при открытии экрана «Заказы». WebView может быть
-размером 1×1 (скрытый) — заказы перехватываются автоматически.
+> ⚠️ **Два критичных момента, иначе заказы не приходят:**
+> 1. WebView должен быть **видимого/нормального размера** (НЕ `1×1`). На 1×1 PDD
+>    ленится грузить список заказов (lazy-load по видимости) → `order_list_v4` не
+>    вызывается.
+> 2. Надо **кликнуть по вкладкам** (待收货 «в пути», 待发货 «ждёт отправки»). PDD
+>    отдаёт активные заказы только на их вкладках; во «全部» могут быть одни
+>    отменённые. У вкладки бывает **бейдж** («待收货1») — клик ищем по «начинается с».
+
+Вызывать с экрана «Обновить заказы PDD» (синк по требованию).
 
 ```dart
+import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-class PinduoduoSyncWebView extends StatefulWidget {
-  const PinduoduoSyncWebView({super.key});
+// JS: кликает по вкладкам заказов, чтобы PDD дёрнул order_list_v4 для активных.
+const _pddClickTabsJs = r"""
+(function(tabs){
+  var i = 0;
+  function clickTab(t){
+    var els = document.querySelectorAll('div,span,a,li');
+    for (var k=0;k<els.length;k++){
+      var el = els[k];
+      var txt = (el.textContent||'').trim();
+      // вкладка: текст начинается с названия, короткий (допускаем бейдж "1"), видимый
+      if (txt.indexOf(t)===0 && txt.length <= t.length+3 && el.offsetParent!==null){
+        el.click(); return true;
+      }
+    }
+    return false;
+  }
+  function step(){ if (i<tabs.length){ clickTab(tabs[i]); i++; setTimeout(step, 1800);} }
+  step();
+})(['待收货','待发货','全部']);
+""";
+
+class PinduoduoSyncScreen extends StatefulWidget {
+  const PinduoduoSyncScreen({super.key});
   @override
-  State<PinduoduoSyncWebView> createState() => _PinduoduoSyncWebViewState();
+  State<PinduoduoSyncScreen> createState() => _PinduoduoSyncScreenState();
 }
 
-class _PinduoduoSyncWebViewState extends State<PinduoduoSyncWebView> {
-  bool _ready = false;
-  InAppWebViewController? _controller;
+class _PinduoduoSyncScreenState extends State<PinduoduoSyncScreen> {
+  InAppWebViewController? _c;
+  bool _ready = false, _done = false;
+  int _created = 0;
+  String _status = 'Загружаю заказы…';
+  Timer? _timeout;
 
   @override
   void initState() {
     super.initState();
-    // ВАЖНО: восстановить cookies сессии ДО загрузки страницы, иначе orders.html
-    // откроется разлогиненным и редиректнёт на login.
+    // Восстановить cookies ДО загрузки, иначе orders.html уйдёт на login.
     PddSession.restore().then((_) {
       if (mounted) setState(() => _ready = true);
     });
+    _timeout = Timer(const Duration(seconds: 45), _finish); // общий лимит
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (!_ready) return const SizedBox.shrink(); // ждём восстановления cookies
-    // Скрытый 1x1 — клиент его не видит.
-    return SizedBox(
-      width: 1, height: 1,
-      child: InAppWebView(
-        initialUrlRequest:
-            URLRequest(url: WebUri('https://mobile.pinduoduo.com/orders.html')),
-        initialUserScripts: UnmodifiableListView([
-          UserScript(
-            source: pddInterceptHookJs,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          ),
-        ]),
-        onWebViewCreated: (controller) {
-          _controller = controller;
-          controller.addJavaScriptHandler(
-            handlerName: 'pddOrders',
-            callback: (args) =>
-                _onOrdersJson(args.isNotEmpty ? args.first as String : ''),
-          );
-        },
-        onLoadStop: (controller, url) {
-          final u = url?.toString() ?? '';
-          // Редирект на логин/проверку → сессия протухла.
-          if (u.contains('login.html') || u.contains('psnl_verification')) {
-            pinduoduoRepository.markSessionExpired(); // POST /session-expired/
-          } else {
-            // PDD мог обновить cookies — пересохраняем, продлевая сессию.
-            PddSession.save(_controller);
-          }
-        },
-      ),
-    );
+  void dispose() { _timeout?.cancel(); super.dispose(); }
+
+  void _finish() {
+    if (_done || !mounted) return;
+    _done = true; _timeout?.cancel();
+    Navigator.of(context).pop(true);
   }
 
-  void _onOrdersJson(String raw) {
-    if (raw.isEmpty) return;
+  Future<void> _onOrders(String raw) async {
+    if (raw.isEmpty || _done) return;
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final orders =
           (data['orders'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-      // Шлём СЫРЫЕ заказы как есть — сервер сам распарсит цену/статус,
-      // отфильтрует отменённые/неоплаченные и создаст посылки.
-      if (orders.isNotEmpty) {
-        pinduoduoRepository.ingest(orders); // POST /ingest/
-      }
+      if (orders.isEmpty) return;
+      setState(() => _status = 'Найдено: ${orders.length}, сохраняю…');
+      // Шлём СЫРЫЕ заказы — сервер сам парсит цену/статус и фильтрует.
+      final r = await pinduoduoRepository.ingest(orders); // POST /ingest/
+      _created += (r['created'] as int? ?? 0);
+      await PddSession.save(_c);
+      setState(() => _status = 'Сохранено новых: $_created');
     } catch (_) {/* битый JSON — игнор */}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_status),
+        actions: [TextButton(
+          onPressed: _finish,
+          child: const Text('Готово', style: TextStyle(color: Colors.white)),
+        )],
+      ),
+      // ВАЖНО: реальный размер, не 1×1 — иначе список не грузится.
+      body: InAppWebView(
+        initialUrlRequest:
+            URLRequest(url: WebUri('https://mobile.pinduoduo.com/orders.html')),
+        initialUserScripts: UnmodifiableListView([
+          UserScript(source: pddInterceptHookJs,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START),
+        ]),
+        onWebViewCreated: (c) {
+          _c = c;
+          c.addJavaScriptHandler(handlerName: 'pddOrders',
+              callback: (a) => _onOrders(a.isNotEmpty ? a.first as String : ''));
+        },
+        onLoadStop: (controller, url) async {
+          final u = url?.toString() ?? '';
+          if (u.contains('login.html') || u.contains('psnl_verification')) {
+            await pinduoduoRepository.markSessionExpired(); // сессия слетела
+            _finish();
+            return;
+          }
+          await PddSession.save(_c);            // продлеваем сессию
+          // Кликаем вкладки → PDD отдаёт order_list_v4 активных заказов.
+          await controller.evaluateJavascript(source: _pddClickTabsJs);
+        },
+      ),
+    );
   }
 }
 ```
+
+> Открываешь этот экран кнопкой «Обновить заказы PDD»; он грузит orders.html,
+> прокликивает вкладки, ловит `order_list_v4` и шлёт **сырые** заказы на `/ingest`.
+> Сервер сам парсит цену (`order_amount/100`), статус (`order_status_prompt`),
+> **фильтрует** (только ждёт отправки / в пути / получен, отменённые — нет) и
+> создаёт `Parcel` по `tracking_number`. Менять логику разбора → бэкенд,
+> `PinduoduoSyncService._normalize_pdd_order` (пересборка приложения не нужна).
 
 > **Разбор заказов теперь на сервере.** Приложение НЕ мапит поля — шлёт сырой
 > массив `orders` из `order_list_v4`. Сервер делает: цена `order_amount/100`,
