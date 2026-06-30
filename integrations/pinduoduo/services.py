@@ -184,8 +184,8 @@ class PinduoduoSyncService:
         # оставляем. Так заказ 待发货 не теряется из-за непривычной формулировки.
         if any(k in prompt for k in ("取消", "待付款", "待支付", "退款", "已退款")):
             return None  # отменён / не оплачен / возврат — НЕ парсим
-        if any(k in prompt for k in ("交易成功", "已完成", "已收货", "已签收")):
-            status = "delivered"  # получен (проверяем раньше «待收货»)
+        if any(k in prompt for k in ("交易成功", "已完成", "已收货", "已签收", "待评价")):
+            status = "delivered"  # получен/завершён (проверяем раньше «待收货»)
         elif track or any(k in prompt for k in ("待收货", "已发货", "运输", "已送达")):
             status = "shipped"  # отправлен / в пути
         else:
