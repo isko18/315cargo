@@ -2,7 +2,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import RedirectView
+from django.views.generic import RedirectView, TemplateView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -54,8 +54,17 @@ router.register(
     basename="manage-city-delivery-tariffs",
 )
 
+_delete_account_view = TemplateView.as_view(
+    template_name="legal/delete_account.html"
+)
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Публичная страница удаления аккаунта (требование Google Play).
+    path("delete-account", _delete_account_view, name="delete-account"),
+    path("delete-account/", _delete_account_view),
+    path("account-deletion", _delete_account_view, name="account-deletion"),
+    path("account-deletion/", _delete_account_view),
     path("api/profile/", ProfileAPIView.as_view(), name="profile"),
     path("api/profile/qr/", ProfileQRAPIView.as_view(), name="profile-qr"),
     path(
