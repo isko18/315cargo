@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { ApiError, get, post } from '../api';
+import QrScanner from '../components/QrScanner';
 
 type Parcel = {
   id: number;
@@ -22,14 +23,21 @@ export default function IssuePage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
+  const [scanning, setScanning] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function extractList(data: any): Parcel[] {
     return (data?.results ?? data) as Parcel[];
   }
 
-  async function load() {
-    const cc = clientCode.trim();
+  function onQr(text: string) {
+    setScanning(false);
+    setClientCode(text);
+    load(text);
+  }
+
+  async function load(codeArg?: string) {
+    const cc = (codeArg ?? clientCode).trim();
     if (!cc || busy) return;
     setErr('');
     setMsg('');
@@ -86,6 +94,8 @@ export default function IssuePage() {
     <div>
       <h1>Выдача товаров клиенту</h1>
 
+      {scanning && <QrScanner onResult={onQr} onClose={() => setScanning(false)} />}
+
       <div className="card">
         <div className="row">
           <div style={{ flex: 3 }}>
@@ -100,8 +110,11 @@ export default function IssuePage() {
               autoComplete="off"
             />
           </div>
-          <button onClick={load} disabled={busy || !clientCode.trim()}>
+          <button onClick={() => load()} disabled={busy || !clientCode.trim()}>
             Найти
+          </button>
+          <button className="ghost" onClick={() => setScanning(true)} disabled={busy}>
+            📷 Сканировать QR
           </button>
         </div>
         <label style={{ marginTop: 8 }}>Карго ID (только для супер-админа)</label>

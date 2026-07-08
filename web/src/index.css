@@ -87,5 +87,16 @@ tbody tr:hover { background: var(--bg); }
 .center { min-height: 60vh; display: grid; place-items: center; }
 .login-card { width: 360px; max-width: 92vw; }
 .scan-input { font-size: 20px; letter-spacing: 1px; }
+
+.qr-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .6);
+  display: grid; place-items: center; z-index: 100; padding: 16px;
+}
+.qr-modal {
+  background: var(--card); border-radius: 14px; padding: 18px;
+  width: 360px; max-width: 92vw;
+}
+.qr-modal h2 { text-align: center; }
+#qr-reader { border-radius: 10px; overflow: hidden; }
 ul.log { list-style: none; padding: 0; margin: 12px 0 0; }
 ul.log li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
