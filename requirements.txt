@@ -13,3 +13,4 @@ redis
 requests>=2.31
 gunicorn
 whitenoise
+django-cors-headers

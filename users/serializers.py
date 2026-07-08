@@ -116,6 +116,48 @@ class ProfileQRSerializer(serializers.Serializer):
     qr_code_image = serializers.URLField(allow_null=True)
 
 
+class StaffSerializer(serializers.ModelSerializer):
+    """Сотрудник/оператор карго: создание и управление владельцем/админом."""
+
+    cargo_title = serializers.CharField(source="cargo.title", read_only=True)
+    password = serializers.CharField(
+        write_only=True, required=True, style={"input_type": "password"}, min_length=6
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "phone",
+            "full_name",
+            "cargo",
+            "cargo_title",
+            "is_cargo_admin",
+            "is_staff",
+            "is_active",
+            "password",
+            "created_at",
+        )
+        read_only_fields = ("id", "cargo_title", "is_staff", "created_at")
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        validated_data["is_staff"] = True
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
 class PasswordLoginSerializer(serializers.Serializer):
     """Вход по логину+паролю для сотрудников и админов (не для обычных клиентов)."""
 

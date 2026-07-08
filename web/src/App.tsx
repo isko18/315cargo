@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import ScanPage from './pages/ScanPage';
 import IssuePage from './pages/IssuePage';
+import StaffPage from './pages/StaffPage';
 import OverviewPage from './pages/OverviewPage';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -23,6 +24,7 @@ export default function App() {
       >
         <Route path="/scan" element={<ScanPage />} />
         <Route path="/issue" element={<IssuePage />} />
+        <Route path="/staff" element={<StaffPage />} />
         <Route path="/overview" element={<OverviewPage />} />
         <Route path="/" element={<Navigate to="/scan" replace />} />
       </Route>

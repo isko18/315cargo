@@ -22,6 +22,9 @@ export default function Layout() {
           <NavLink to="/issue" className={({ isActive }) => (isActive ? 'active' : '')}>
             Выдача
           </NavLink>
+          <NavLink to="/staff" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Сотрудники
+          </NavLink>
           <NavLink to="/overview" className={({ isActive }) => (isActive ? 'active' : '')}>
             Все карго
           </NavLink>

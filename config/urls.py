@@ -31,7 +31,12 @@ from orders.views import OrderViewSet
 from parcels.views import ParcelViewSet
 from pickup_points.views import ManagedPickupPointViewSet, PickupPointViewSet
 from shops.views import ShopViewSet
-from users.views import AuthViewSet, ProfileAPIView, ProfileQRAPIView
+from users.views import (
+    AuthViewSet,
+    ManagedStaffViewSet,
+    ProfileAPIView,
+    ProfileQRAPIView,
+)
 
 router = DefaultRouter()
 router.register("cargo-companies", CargoCompanyViewSet, basename="cargo-companies")
@@ -45,6 +50,7 @@ router.register("city-delivery-tariffs", CityDeliveryTariffViewSet, basename="ci
 router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
+router.register("manage/staff", ManagedStaffViewSet, basename="manage-staff")
 router.register(
     "manage/pickup-points", ManagedPickupPointViewSet, basename="manage-pickup-points"
 )

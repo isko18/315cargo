@@ -235,6 +235,41 @@ def test_password_login_for_staff(api_client, cargo):
 
 
 @pytest.mark.django_db
+def test_cargo_admin_creates_staff(api_client, cargo):
+    admin = UserFactory(
+        cargo=cargo, phone="+996700111000", password="adminpw1", is_staff=True
+    )
+    tok = api_client.post(
+        "/api/auth/token/", {"login": admin.phone, "password": "adminpw1"}, format="json"
+    ).data["access"]
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+
+    r = api_client.post(
+        "/api/manage/staff/",
+        {"phone": "+996700222000", "full_name": "Оператор", "password": "operpw1"},
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+
+    op = User.objects.get(phone="+996700222000")
+    assert op.is_staff and op.cargo_id == cargo.id and op.check_password("operpw1")
+
+    # созданный оператор входит по паролю
+    login = api_client.post(
+        "/api/auth/token/",
+        {"login": "+996700222000", "password": "operpw1"},
+        format="json",
+    )
+    assert login.status_code == 200
+
+    # оператор виден в списке своего карго
+    lst = api_client.get("/api/manage/staff/")
+    assert lst.status_code == 200
+    items = lst.data["results"] if isinstance(lst.data, dict) else lst.data
+    assert "+996700222000" in [u["phone"] for u in items]
+
+
+@pytest.mark.django_db
 def test_refresh_token(api_client, user):
     from rest_framework_simplejwt.tokens import RefreshToken
 

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.models import Q
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.decorators import action
@@ -6,13 +7,14 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.audit import log_audit
 from common.models import AuditLog
+from common.permissions import IsCargoManager
 from common.throttling import AuthRateThrottle, SmsRateThrottle
 
 from .models import User
@@ -22,6 +24,7 @@ from .serializers import (
     PasswordLoginSerializer,
     RefreshTokenSerializer,
     SendCodeSerializer,
+    StaffSerializer,
     UserSerializer,
     VerifyCodeSerializer,
     ProfileQRSerializer,
@@ -229,3 +232,39 @@ class ProfileQRAPIView(APIView):
             else None
         )
         return Response({"client_code": user.client_code, "qr_code_image": qr_url})
+
+
+@extend_schema_view(list=extend_schema(tags=["manage"]), create=extend_schema(tags=["manage"]))
+class ManagedStaffViewSet(ModelViewSet):
+    """Управление сотрудниками карго: владелец/админ создаёт операторов.
+
+    Cargo-админ работает только в своём карго; супер-владелец — по всем
+    (карго указывается в теле)."""
+
+    serializer_class = StaffSerializer
+    permission_classes = (IsAuthenticated, IsCargoManager)
+    http_method_names = ("get", "post", "patch", "delete", "head", "options")
+    queryset = User.objects.none()
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return User.objects.none()
+        qs = (
+            User.objects.filter(Q(is_staff=True) | Q(is_cargo_admin=True))
+            .exclude(is_superuser=True)
+            .select_related("cargo")
+            .order_by("-created_at")
+        )
+        if self.request.user.is_superuser:
+            return qs
+        return qs.filter(cargo_id=self.request.user.cargo_id)
+
+    def perform_create(self, serializer):
+        actor = self.request.user
+        if actor.is_superuser:
+            if not serializer.validated_data.get("cargo"):
+                raise ValidationError({"cargo": "Обязателен для супер-владельца"})
+            serializer.save()
+        else:
+            # Cargo-админ создаёт сотрудника только в своём карго.
+            serializer.save(cargo=actor.cargo)
