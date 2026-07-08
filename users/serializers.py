@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 
 from cargo.models import CargoCompany
@@ -113,6 +114,27 @@ class AuthResponseSerializer(serializers.Serializer):
 class ProfileQRSerializer(serializers.Serializer):
     client_code = serializers.CharField(allow_null=True)
     qr_code_image = serializers.URLField(allow_null=True)
+
+
+class PasswordLoginSerializer(serializers.Serializer):
+    """Вход по логину+паролю для сотрудников и админов (не для обычных клиентов)."""
+
+    login = serializers.CharField(help_text="Телефон или login_key")
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+
+    def validate(self, attrs):
+        login = (attrs.get("login") or "").strip()
+        password = attrs.get("password") or ""
+        candidates = User.objects.filter(
+            Q(login_key=login) | Q(phone=login)
+        ).filter(Q(is_staff=True) | Q(is_superuser=True))
+        for user in candidates:
+            if user.is_active and user.check_password(password):
+                attrs["user"] = user
+                return attrs
+        raise serializers.ValidationError(
+            {"detail": "Неверный логин или пароль, либо нет прав сотрудника"}
+        )
 
 
 class RefreshTokenSerializer(serializers.Serializer):

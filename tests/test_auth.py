@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from tests.factories import CargoCompanyFactory, PickupPointFactory
+from tests.factories import CargoCompanyFactory, PickupPointFactory, UserFactory
 from users.models import SMSCode
 
 User = get_user_model()
@@ -200,6 +200,38 @@ def test_existing_user_login(api_client, user):
     assert response.status_code == 200
     assert response.data["is_new_user"] is False
     assert response.data["user"]["id"] == user.id
+
+
+@pytest.mark.django_db
+def test_password_login_for_staff(api_client, cargo):
+    staff = UserFactory(
+        cargo=cargo, phone="+996700999999", password="secret123", is_staff=True
+    )
+    r = api_client.post(
+        "/api/auth/token/",
+        {"login": staff.phone, "password": "secret123"},
+        format="json",
+    )
+    assert r.status_code == 200, r.data
+    assert r.data["access"]
+    assert r.data["user"]["id"] == staff.id
+
+    # неверный пароль
+    bad = api_client.post(
+        "/api/auth/token/",
+        {"login": staff.phone, "password": "nope"},
+        format="json",
+    )
+    assert bad.status_code == 400
+
+    # обычный клиент (не staff) не может войти по паролю
+    UserFactory(cargo=cargo, phone="+996700888888", password="pw12345", is_staff=False)
+    client_login = api_client.post(
+        "/api/auth/token/",
+        {"login": "+996700888888", "password": "pw12345"},
+        format="json",
+    )
+    assert client_login.status_code == 400
 
 
 @pytest.mark.django_db

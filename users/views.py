@@ -19,6 +19,7 @@ from .models import User
 from .serializers import (
     AuthResponseSerializer,
     LogoutSerializer,
+    PasswordLoginSerializer,
     RefreshTokenSerializer,
     SendCodeSerializer,
     UserSerializer,
@@ -125,6 +126,35 @@ class AuthViewSet(GenericViewSet):
                 **tokens,
                 "user": UserSerializer(user, context={"request": request}).data,
                 "is_new_user": is_new_user,
+            }
+        )
+
+    @extend_schema(request=PasswordLoginSerializer, responses={200: AuthResponseSerializer})
+    @action(
+        detail=False,
+        methods=("post",),
+        url_path="token",
+        throttle_classes=(AuthRateThrottle,),
+    )
+    def token(self, request):
+        """Вход по логину+паролю (сотрудники/админы) → JWT."""
+        serializer = PasswordLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        tokens = issue_tokens_for_user(user)
+        log_audit(
+            AuditLog.Action.USER_LOGIN,
+            actor=user,
+            target_user=user,
+            description="Вход по паролю",
+            metadata={"login": user.login_key},
+            request=request,
+        )
+        return Response(
+            {
+                **tokens,
+                "user": UserSerializer(user, context={"request": request}).data,
+                "is_new_user": False,
             }
         )
 
