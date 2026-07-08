@@ -3,6 +3,7 @@ import { getToken } from './api';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import ScanPage from './pages/ScanPage';
+import IssuePage from './pages/IssuePage';
 import OverviewPage from './pages/OverviewPage';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -21,6 +22,7 @@ export default function App() {
         }
       >
         <Route path="/scan" element={<ScanPage />} />
+        <Route path="/issue" element={<IssuePage />} />
         <Route path="/overview" element={<OverviewPage />} />
         <Route path="/" element={<Navigate to="/scan" replace />} />
       </Route>

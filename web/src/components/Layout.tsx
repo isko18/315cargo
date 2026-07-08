@@ -19,6 +19,9 @@ export default function Layout() {
           <NavLink to="/scan" className={({ isActive }) => (isActive ? 'active' : '')}>
             Приём по штрих-коду
           </NavLink>
+          <NavLink to="/issue" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Выдача
+          </NavLink>
           <NavLink to="/overview" className={({ isActive }) => (isActive ? 'active' : '')}>
             Все карго
           </NavLink>

@@ -18,8 +18,13 @@ npm run build             # прод-сборка в dist/
 | Страница | API | Кому |
 |---|---|---|
 | `/scan` — Приём по штрих-коду | `POST /api/parcels/scan/`, `POST /api/parcels/{id}/assign/` | оператор карго / владелец |
+| `/issue` — Выдача клиенту | `GET /api/parcels/?client_code=`, `POST /api/parcels/scan/` (status=issued) | оператор карго / владелец |
 | `/overview` — Все карго | `GET /api/admin/overview/` | владелец (супер-админ) |
 | `/login` | `/api/cargo-companies/`, `/api/auth/send-code/`, `/api/auth/verify-code/` | все |
+
+**Выдача:** оператор вводит/сканирует код клиента → грузятся его посылки →
+выбирает нужные → «Выдать» переводит каждую в статус «Выдан» (через `scan` с
+`status=issued`). Уже выданные подсвечены и недоступны.
 
 ## Вход
 

@@ -24,6 +24,23 @@ def test_parcels_list_filters_to_owner(auth_client):
 
 
 @pytest.mark.django_db
+def test_parcels_filter_by_client_code(auth_client):
+    cc = auth_client.user.client_code
+    mine = ParcelFactory(user=auth_client.user, client_code=cc)
+    ParcelFactory(user=auth_client.user, client_code="C0000001")  # другой код
+    response = auth_client.get(f"/api/parcels/?client_code={cc}")
+    assert response.status_code == 200
+    items = (
+        response.data["results"]
+        if isinstance(response.data, dict) and "results" in response.data
+        else response.data
+    )
+    tracks = [i["track_number"] for i in items]
+    assert mine.track_number in tracks
+    assert all(i["client_code"] == cc for i in items)
+
+
+@pytest.mark.django_db
 def test_parcel_history_records_status_change(auth_client):
     parcel = ParcelFactory(user=auth_client.user)
     parcel.status = Parcel.Status.AT_PICKUP_POINT
