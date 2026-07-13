@@ -7,6 +7,7 @@ from datetime import timedelta
 from io import BytesIO
 
 import qrcode
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from rest_framework.exceptions import Throttled, ValidationError
@@ -57,6 +58,10 @@ def _generate_sms_message_id():
 
 def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
     phone = validate_phone(phone)
+    # Тестовый номер ревьюера: не шлём реальную SMS, код фиксированный (см. verify).
+    if phone in settings.OTP_TEST_NUMBERS:
+        logger.info("Test OTP: send skipped (no SMS)", extra={"phone": phone})
+        return None
     # Throttle by phone+cargo (not purpose) so alternating purpose cannot
     # double the SMS volume / number of outstanding valid codes.
     recent_code = SMSCode.objects.filter(
@@ -112,6 +117,14 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
 
 def verify_sms_code(phone, code, cargo=None):
     phone = validate_phone(phone)
+    # Тестовый номер ревьюера: фиксированный код, всегда валиден (не истекает,
+    # не одноразовый) — ревью может повторять вход.
+    test_code = settings.OTP_TEST_NUMBERS.get(phone)
+    if test_code is not None:
+        if code == test_code:
+            logger.info("Test OTP verified", extra={"phone": phone})
+            return None
+        raise ValidationError("Invalid or expired SMS code")
     # Bind the code to the cargo it was issued for: a code sent for cargo A
     # must not authenticate the same phone under cargo B. Only the most recent
     # outstanding code is checkable, and each code allows a limited number of

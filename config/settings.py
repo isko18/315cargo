@@ -121,6 +121,25 @@ CORS_ALLOWED_ORIGINS = [
 # JWT в заголовке Authorization — cookies не нужны.
 CORS_ALLOW_CREDENTIALS = False
 
+
+def _parse_otp_test_numbers(raw):
+    """`+996700000000:0000,+996...:1234` → {phone: fixed_code}."""
+    result = {}
+    for pair in (raw or "").split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            phone, code = pair.split(":", 1)
+            if phone.strip() and code.strip():
+                result[phone.strip()] = code.strip()
+    return result
+
+
+# Тестовые номера для ревьюеров магазинов: фиксированный код, без реальной SMS,
+# без истечения/лимита попыток. Требует существующего пользователя с этим phone.
+OTP_TEST_NUMBERS = _parse_otp_test_numbers(
+    os.getenv("OTP_TEST_NUMBERS", "+996700000000:0000")
+)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",

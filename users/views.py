@@ -219,6 +219,53 @@ class ProfileAPIView(APIView):
         serializer.save()
         return Response(serializer.data)
 
+    @extend_schema(tags=["profile"], responses={204: None})
+    def delete(self, request):
+        """Удаление аккаунта: обезличивание PII, деактивация, инвалидация токенов."""
+        user = request.user
+        if user.phone in settings.OTP_TEST_NUMBERS:
+            return Response(
+                {"detail": "Тестовый аккаунт не может быть удалён"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Инвалидируем все refresh-токены пользователя.
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import (
+                BlacklistedToken,
+                OutstandingToken,
+            )
+
+            for token in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=token)
+        except Exception:  # noqa: BLE001 — блэклист опционален
+            pass
+
+        # Обезличиваем адреса доставки по городу.
+        from city_delivery.models import CityDeliveryRequest
+
+        CityDeliveryRequest.objects.filter(user=user).update(
+            recipient_name="", recipient_phone="", address="", comment=""
+        )
+
+        log_audit(
+            getattr(AuditLog.Action, "USER_DELETED", AuditLog.Action.USER_LOGOUT),
+            actor=user,
+            target_user=user,
+            description="Удаление аккаунта",
+            metadata={"user_id": user.id},
+            request=request,
+        )
+
+        # Обезличиваем и деактивируем (SimpleJWT отвергает неактивных → access мёртв).
+        user.full_name = ""
+        user.phone = f"deleted-{user.id}"
+        user.pickup_point = None
+        user.is_active = False
+        user.set_unusable_password()
+        user.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class ProfileQRAPIView(APIView):
     permission_classes = (IsAuthenticated,)

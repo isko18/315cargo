@@ -185,6 +185,58 @@ def test_otp_brute_force_locked_after_max_attempts(api_client, pickup_point):
 
 
 @pytest.mark.django_db
+def test_reviewer_test_number_login(api_client, cargo, settings):
+    settings.OTP_TEST_NUMBERS = {"+996700123456": "9999"}
+    u = User(phone="+996700123456", cargo=cargo, full_name="Ревьюер")
+    u.set_unusable_password()
+    u.save()
+
+    send = api_client.post(
+        "/api/auth/send-code/",
+        {"phone": "+996700123456", "cargo_id": cargo.id, "purpose": "login"},
+        format="json",
+    )
+    assert send.status_code == 200  # 200 без реальной SMS
+
+    ver = api_client.post(
+        "/api/auth/verify-code/",
+        {"phone": "+996700123456", "code": "9999", "cargo_id": cargo.id},
+        format="json",
+    )
+    assert ver.status_code == 200, ver.data
+    assert ver.data["is_new_user"] is False
+    assert ver.data["access"]
+
+    bad = api_client.post(
+        "/api/auth/verify-code/",
+        {"phone": "+996700123456", "code": "0000", "cargo_id": cargo.id},
+        format="json",
+    )
+    assert bad.status_code == 400  # неверный фиксированный код
+
+
+@pytest.mark.django_db
+def test_account_deletion(api_client, user, settings):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    settings.OTP_TEST_NUMBERS = {}  # чтобы фикстура не совпала с тест-номером
+    refresh = RefreshToken.for_user(user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
+
+    r = api_client.delete("/api/profile/")
+    assert r.status_code == 204
+
+    user.refresh_from_db()
+    assert user.is_active is False
+    assert user.full_name == ""
+    assert user.phone == f"deleted-{user.id}"
+
+    # Токен больше не работает (пользователь деактивирован).
+    me = api_client.get("/api/profile/")
+    assert me.status_code == 401
+
+
+@pytest.mark.django_db
 def test_existing_user_login(api_client, user):
     api_client.post(
         "/api/auth/send-code/",
