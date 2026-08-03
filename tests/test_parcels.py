@@ -23,6 +23,142 @@ def test_parcels_list_filters_to_owner(auth_client):
     assert len(items) == 1
 
 
+def _items(response):
+    d = response.data
+    return d["results"] if isinstance(d, dict) and "results" in d else d
+
+
+@pytest.mark.django_db
+def test_pickup_bound_operator_sees_only_own_pickup(api_client):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from tests.factories import CargoCompanyFactory, PickupPointFactory, UserFactory
+
+    cargo = CargoCompanyFactory()
+    pp1 = PickupPointFactory(cargo=cargo)
+    pp2 = PickupPointFactory(cargo=cargo)
+    client1 = UserFactory(cargo=cargo, pickup_point=pp1)
+    client2 = UserFactory(cargo=cargo, pickup_point=pp2)
+    p1 = ParcelFactory(user=client1, cargo=cargo)
+    ParcelFactory(user=client2, cargo=cargo)  # чужой ПВЗ
+
+    # Оператор, привязанный к pp1.
+    operator = UserFactory(cargo=cargo, is_staff=True, pickup_point=pp1, allowed_tabs=["warehouse"])
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(operator).access_token}"
+    )
+    r = api_client.get("/api/parcels/")
+    tracks = [i["track_number"] for i in _items(r)]
+    assert tracks == [p1.track_number]
+
+
+@pytest.mark.django_db
+def test_pickup_bound_operator_sees_unclaimed_received_parcel(api_client):
+    """«Ничья» посылка (без клиента), принятая в ПВЗ оператора, видна на его складе."""
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from parcels.services import scan_parcel
+    from tests.factories import CargoCompanyFactory, PickupPointFactory, UserFactory
+
+    cargo = CargoCompanyFactory()
+    pp1 = PickupPointFactory(cargo=cargo)
+    operator = UserFactory(
+        cargo=cargo, is_staff=True, pickup_point=pp1, allowed_tabs=["warehouse"]
+    )
+
+    # Приём «ничьей» посылки (без клиента/заказа) в ПВЗ оператора.
+    _, parcel = scan_parcel(
+        "44",
+        cargo=cargo,
+        actor=operator,
+        status=Parcel.Status.AT_PICKUP_POINT,
+    )
+    assert parcel.user_id is None
+    assert parcel.pickup_point_id == pp1.id
+
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(operator).access_token}"
+    )
+    r = api_client.get("/api/parcels/")
+    tracks = [i["track_number"] for i in _items(r)]
+    assert "44" in tracks
+
+    # Переключатель прислал чужой ПВЗ — для привязанного оператора игнорируется.
+    other = PickupPointFactory(cargo=cargo)
+    r = api_client.get(f"/api/parcels/?pickup_point={other.id}")
+    tracks = [i["track_number"] for i in _items(r)]
+    assert "44" in tracks
+
+
+@pytest.mark.django_db
+def test_bound_operator_receives_into_own_pickup_ignoring_switcher():
+    """Привязанный оператор принимает в свой ПВЗ, даже если фронт прислал чужой."""
+    from parcels.services import scan_parcel
+    from tests.factories import CargoCompanyFactory, PickupPointFactory, UserFactory
+
+    cargo = CargoCompanyFactory()
+    own = PickupPointFactory(cargo=cargo)
+    other = PickupPointFactory(cargo=cargo)
+    operator = UserFactory(cargo=cargo, is_staff=True, pickup_point=own)
+
+    # Фронт прислал pickup_point чужого ПВЗ — должен быть проигнорирован.
+    _, parcel = scan_parcel(
+        "11",
+        cargo=cargo,
+        actor=operator,
+        status=Parcel.Status.AT_PICKUP_POINT,
+        pickup_point=other.id,
+    )
+    assert parcel.pickup_point_id == own.id
+
+
+@pytest.mark.django_db
+def test_warehouse_filters_status_search_pending(cargo_admin_client):
+    from tests.factories import UserFactory
+
+    cargo = cargo_admin_client.user.cargo
+    client = UserFactory(cargo=cargo)
+    at_pickup = ParcelFactory(
+        user=client, cargo=cargo, status=Parcel.Status.AT_PICKUP_POINT,
+        track_number="WH-PICKUP-1",
+    )
+    ParcelFactory(user=client, cargo=cargo, status=Parcel.Status.ISSUED, track_number="WH-ISSUED-1")
+    pending = Parcel.objects.create(cargo=cargo, track_number="WH-PENDING-1")
+
+    # status_in
+    r = cargo_admin_client.get(
+        "/api/parcels/?status_in=at_pickup_point,arrived_kyrgyzstan"
+    )
+    codes = [i["track_number"] for i in _items(r)]
+    assert at_pickup.track_number in codes
+    assert "WH-ISSUED-1" not in codes
+
+    # search по треку
+    r = cargo_admin_client.get("/api/parcels/?search=WH-PICKUP")
+    assert [i["track_number"] for i in _items(r)] == ["WH-PICKUP-1"]
+
+    # pending — только без клиента
+    r = cargo_admin_client.get("/api/parcels/?pending=true")
+    codes = [i["track_number"] for i in _items(r)]
+    assert pending.track_number in codes
+    assert at_pickup.track_number not in codes
+
+
+@pytest.mark.django_db
+def test_parcel_serializer_exposes_client_details(cargo_admin_client):
+    from tests.factories import UserFactory
+
+    cargo = cargo_admin_client.user.cargo
+    client = UserFactory(cargo=cargo, full_name="Иван Клиент")
+    ParcelFactory(user=client, cargo=cargo, track_number="WH-DETAIL-1")
+
+    r = cargo_admin_client.get("/api/parcels/?search=WH-DETAIL-1")
+    item = _items(r)[0]
+    assert item["client_name"] == "Иван Клиент"
+    assert item["client_phone"] == client.phone
+    assert "pickup_point_title" in item
+
+
 @pytest.mark.django_db
 def test_parcels_filter_by_client_code(auth_client):
     cc = auth_client.user.client_code

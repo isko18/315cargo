@@ -14,13 +14,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.audit import log_audit
 from common.models import AuditLog
-from common.permissions import IsCargoManager
+from common.permissions import HasTabAccess, IsCargoManager
 from common.throttling import AuthRateThrottle, SmsRateThrottle
 
 from .models import User
 from .serializers import (
     AuthResponseSerializer,
     LogoutSerializer,
+    PasswordChangeSerializer,
     PasswordLoginSerializer,
     RefreshTokenSerializer,
     SendCodeSerializer,
@@ -267,6 +268,28 @@ class ProfileAPIView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProfilePasswordAPIView(APIView):
+    """Смена собственного пароля из профиля."""
+
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(tags=["profile"], request=PasswordChangeSerializer, responses={200: dict})
+    def post(self, request):
+        serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        log_audit(
+            AuditLog.Action.USER_LOGIN,
+            actor=user,
+            target_user=user,
+            description="Смена пароля",
+            request=request,
+        )
+        return Response({"detail": "Пароль обновлён"})
+
+
 class ProfileQRAPIView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -289,7 +312,8 @@ class ManagedStaffViewSet(ModelViewSet):
     (карго указывается в теле)."""
 
     serializer_class = StaffSerializer
-    permission_classes = (IsAuthenticated, IsCargoManager)
+    permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
+    required_tab = "staff"
     http_method_names = ("get", "post", "patch", "delete", "head", "options")
     queryset = User.objects.none()
 
@@ -299,15 +323,25 @@ class ManagedStaffViewSet(ModelViewSet):
         qs = (
             User.objects.filter(Q(is_staff=True) | Q(is_cargo_admin=True))
             .exclude(is_superuser=True)
-            .select_related("cargo")
+            .select_related("cargo", "pickup_point")
             .order_by("-created_at")
         )
         if self.request.user.is_superuser:
             return qs
-        return qs.filter(cargo_id=self.request.user.cargo_id)
+        # Оператор склада в Китае — глобальная роль супер-владельца; админам
+        # карго он не виден и не управляется ими.
+        return qs.filter(cargo_id=self.request.user.cargo_id).exclude(is_china_staff=True)
+
+    def _guard_china(self, serializer):
+        # Роль оператора склада в Китае может назначать только супер-владелец.
+        if serializer.validated_data.get("is_china_staff") and not self.request.user.is_superuser:
+            raise ValidationError(
+                {"is_china_staff": "Оператора склада в Китае создаёт только супер-владелец"}
+            )
 
     def perform_create(self, serializer):
         actor = self.request.user
+        self._guard_china(serializer)
         if actor.is_superuser:
             if not serializer.validated_data.get("cargo"):
                 raise ValidationError({"cargo": "Обязателен для супер-владельца"})
@@ -315,3 +349,81 @@ class ManagedStaffViewSet(ModelViewSet):
         else:
             # Cargo-админ создаёт сотрудника только в своём карго.
             serializer.save(cargo=actor.cargo)
+
+    def perform_update(self, serializer):
+        self._guard_china(serializer)
+        serializer.save()
+
+
+@extend_schema_view(list=extend_schema(tags=["manage"]))
+class ManagedClientViewSet(GenericViewSet):
+    """Клиенты карго в панели: список + история покупок (заказы и посылки).
+
+    Cargo-scoped; оператор, привязанный к ПВЗ, видит только клиентов своего
+    пункта выдачи."""
+
+    permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
+    required_tab = "clients"
+    queryset = User.objects.none()
+
+    def get_queryset(self):
+        from django.db.models import Count
+
+        from common.cargo_scoping import bound_pickup_id, get_request_cargo_id
+
+        if getattr(self, "swagger_fake_view", False):
+            return User.objects.none()
+        qs = (
+            User.objects.filter(is_staff=False, is_superuser=False)
+            .select_related("pickup_point")
+            .annotate(orders_count=Count("orders", distinct=True), parcels_count=Count("parcels", distinct=True))
+            .order_by("-created_at")
+        )
+        cargo_id = get_request_cargo_id(self.request.user)
+        if cargo_id:
+            qs = qs.filter(cargo_id=cargo_id)
+        pickup_id = bound_pickup_id(self.request.user)
+        if pickup_id:
+            qs = qs.filter(pickup_point_id=pickup_id)
+        return qs
+
+    def list(self, request):
+        from .serializers import ClientListSerializer
+
+        qs = self.filter_queryset(self.get_queryset())
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(full_name__icontains=search)
+                | Q(phone__icontains=search)
+                | Q(client_code__icontains=search)
+            )
+        page = self.paginate_queryset(qs)
+        data = ClientListSerializer(page if page is not None else qs, many=True).data
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+    @action(detail=True, methods=("get",))
+    def history(self, request, pk=None):
+        from orders.models import Order
+        from orders.serializers import OrderSerializer
+        from parcels.models import Parcel
+        from parcels.serializers import ParcelSerializer
+
+        client = self.get_object()
+        orders = Order.objects.filter(user=client).order_by("-created_at")
+        parcels = Parcel.objects.filter(user=client).select_related("order").order_by("-created_at")
+        return Response(
+            {
+                "client": {
+                    "id": client.id,
+                    "full_name": client.full_name,
+                    "phone": client.phone,
+                    "client_code": client.client_code,
+                    "pickup_point_title": getattr(client.pickup_point, "title", None),
+                },
+                "orders": OrderSerializer(orders, many=True, context={"request": request}).data,
+                "parcels": ParcelSerializer(parcels, many=True, context={"request": request}).data,
+            }
+        )

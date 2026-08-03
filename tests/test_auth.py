@@ -289,7 +289,7 @@ def test_password_login_for_staff(api_client, cargo):
 @pytest.mark.django_db
 def test_cargo_admin_creates_staff(api_client, cargo):
     admin = UserFactory(
-        cargo=cargo, phone="+996700111000", password="adminpw1", is_staff=True
+        cargo=cargo, phone="+996700111000", password="adminpw1", is_cargo_admin=True
     )
     tok = api_client.post(
         "/api/auth/token/", {"login": admin.phone, "password": "adminpw1"}, format="json"
@@ -319,6 +319,206 @@ def test_cargo_admin_creates_staff(api_client, cargo):
     assert lst.status_code == 200
     items = lst.data["results"] if isinstance(lst.data, dict) else lst.data
     assert "+996700222000" in [u["phone"] for u in items]
+
+
+@pytest.mark.django_db
+def test_cargo_admin_assigns_pickup_point_to_staff(api_client, cargo):
+    from pickup_points.models import PickupPoint
+    from tests.factories import CargoCompanyFactory, PickupPointFactory
+
+    admin = UserFactory(
+        cargo=cargo, phone="+996700111001", password="adminpw1", is_cargo_admin=True
+    )
+    tok = api_client.post(
+        "/api/auth/token/", {"login": admin.phone, "password": "adminpw1"}, format="json"
+    ).data["access"]
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+
+    pp = PickupPointFactory(cargo=cargo, title="ПВЗ Центр")
+
+    # Назначение своего ПВЗ — успех.
+    r = api_client.post(
+        "/api/manage/staff/",
+        {
+            "phone": "+996700222001",
+            "full_name": "Оператор ПВЗ",
+            "password": "operpw1",
+            "pickup_point": pp.id,
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+    assert r.data["pickup_point"] == pp.id
+    assert r.data["pickup_point_title"] == "ПВЗ Центр"
+    assert User.objects.get(phone="+996700222001").pickup_point_id == pp.id
+
+    # ПВЗ чужого карго — отклонить.
+    other_pp = PickupPointFactory(cargo=CargoCompanyFactory())
+    bad = api_client.post(
+        "/api/manage/staff/",
+        {
+            "phone": "+996700222002",
+            "full_name": "Плохой",
+            "password": "operpw1",
+            "pickup_point": other_pp.id,
+        },
+        format="json",
+    )
+    assert bad.status_code == 400
+    assert "pickup_point" in bad.data
+
+
+@pytest.mark.django_db
+def test_operator_tab_access_enforced(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    # Оператор с доступом только к «warehouse» — без staff/tariff/analytics.
+    op = UserFactory(cargo=cargo, is_staff=True, allowed_tabs=["warehouse"])
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(op).access_token}"
+    )
+
+    # Роль-payload отдаёт эффективные вкладки.
+    me = api_client.get("/api/profile/")
+    assert me.data["allowed_tabs"] == ["warehouse"]
+
+    # Управляющие вкладки запрещены (403).
+    assert api_client.get("/api/manage/staff/").status_code == 403
+    assert api_client.get("/api/manage/pickup-points/").status_code == 403
+    assert api_client.get("/api/manage/cargo/").status_code == 403
+    assert api_client.get("/api/manage/dashboard/").status_code == 403
+
+    # Разрешённый раздел (склад — чтение посылок) доступен.
+    assert api_client.get("/api/parcels/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_cargo_admin_creates_operator_with_tabs(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    admin = UserFactory(cargo=cargo, phone="+996700111010", password="adminpw1", is_cargo_admin=True)
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(admin).access_token}"
+    )
+
+    r = api_client.post(
+        "/api/manage/staff/",
+        {
+            "phone": "+996700222010",
+            "full_name": "Оператор Тариф",
+            "password": "operpw1",
+            "allowed_tabs": ["scan", "tariff", "overview"],  # overview невыдаваем — отфильтруется
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+    assert r.data["allowed_tabs"] == ["scan", "tariff"]
+
+    op = User.objects.get(phone="+996700222010")
+    op_tok = RefreshToken.for_user(op).access_token
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {op_tok}")
+    # tariff выдан → доступ есть; staff не выдан → 403.
+    assert api_client.get("/api/manage/cargo/").status_code == 200
+    assert api_client.get("/api/manage/staff/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_cargo_admin_cannot_create_china_operator(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    admin = UserFactory(cargo=cargo, phone="+996700111030", password="adminpw1", is_cargo_admin=True)
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(admin).access_token}"
+    )
+    r = api_client.post(
+        "/api/manage/staff/",
+        {
+            "phone": "+996700222030",
+            "full_name": "China",
+            "password": "operpw1",
+            "is_china_staff": True,
+        },
+        format="json",
+    )
+    assert r.status_code == 400
+    assert "is_china_staff" in r.data
+
+
+@pytest.mark.django_db
+def test_cargo_admin_does_not_see_china_operators(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    admin = UserFactory(cargo=cargo, phone="+996700111031", password="adminpw1", is_cargo_admin=True)
+    china = UserFactory(cargo=cargo, is_staff=True, is_china_staff=True)
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(admin).access_token}"
+    )
+    lst = api_client.get("/api/manage/staff/")
+    items = lst.data["results"] if isinstance(lst.data, dict) else lst.data
+    assert china.id not in [u["id"] for u in items]
+    # У админа карго нет вкладки склада Китая.
+    me = api_client.get("/api/profile/")
+    assert "china" not in me.data["allowed_tabs"]
+
+
+@pytest.mark.django_db
+def test_cargo_admin_edits_operator_tabs(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    admin = UserFactory(cargo=cargo, phone="+996700111020", password="adminpw1", is_cargo_admin=True)
+    operator = UserFactory(cargo=cargo, is_staff=True, allowed_tabs=["scan"])
+    api_client.credentials(
+        HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(admin).access_token}"
+    )
+
+    # Выдаём оператору доступ к тарифу и аналитике (без смены пароля).
+    r = api_client.patch(
+        f"/api/manage/staff/{operator.id}/",
+        {"allowed_tabs": ["scan", "tariff", "analytics"]},
+        format="json",
+    )
+    assert r.status_code == 200, r.data
+    assert r.data["allowed_tabs"] == ["scan", "tariff", "analytics"]
+
+    operator.refresh_from_db()
+    assert operator.allowed_tabs == ["scan", "tariff", "analytics"]
+
+    # Пароль не тронут — старый вход работает.
+    op_tok = RefreshToken.for_user(operator).access_token
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {op_tok}")
+    assert api_client.get("/api/manage/cargo/").status_code == 200  # tariff выдан
+    assert api_client.get("/api/manage/staff/").status_code == 403  # staff не выдан
+
+
+@pytest.mark.django_db
+def test_profile_password_change(api_client, cargo):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    op = UserFactory(cargo=cargo, phone="+996700111099", password="oldpw12", is_staff=True)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(op).access_token}")
+
+    # Неверный текущий пароль — 400.
+    bad = api_client.post(
+        "/api/profile/password/",
+        {"current_password": "wrong", "new_password": "newpw123"},
+        format="json",
+    )
+    assert bad.status_code == 400
+
+    ok = api_client.post(
+        "/api/profile/password/",
+        {"current_password": "oldpw12", "new_password": "newpw123"},
+        format="json",
+    )
+    assert ok.status_code == 200
+
+    # Старый пароль больше не работает, новый — работает.
+    assert api_client.post(
+        "/api/auth/token/", {"login": op.phone, "password": "oldpw12"}, format="json"
+    ).status_code == 400
+    assert api_client.post(
+        "/api/auth/token/", {"login": op.phone, "password": "newpw123"}, format="json"
+    ).status_code == 200
 
 
 @pytest.mark.django_db

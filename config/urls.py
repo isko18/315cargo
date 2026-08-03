@@ -11,14 +11,17 @@ from drf_spectacular.views import (
 from rest_framework.routers import DefaultRouter
 
 from cargo.views import (
+    AdminCargoViewSet,
     AdminOverviewAPIView,
     CargoCompanyViewSet,
     CargoDashboardAPIView,
     MyCargoAPIView,
 )
+from common.views import DeliveryAddressAPIView
 from city_delivery.views import (
     CityDeliveryRequestViewSet,
     CityDeliveryTariffViewSet,
+    ManagedCityDeliveryRequestViewSet,
     ManagedCityDeliveryTariffViewSet,
 )
 from integrations.pinduoduo.views import PinduoduoIntegrationViewSet
@@ -28,29 +31,37 @@ from notifications.views import (
     NotificationViewSet,
 )
 from orders.views import OrderViewSet
-from parcels.views import ParcelViewSet
+from parcels.views import OperationHistoryViewSet, ParcelViewSet
 from pickup_points.views import ManagedPickupPointViewSet, PickupPointViewSet
 from shops.views import ShopViewSet
 from users.views import (
     AuthViewSet,
+    ManagedClientViewSet,
     ManagedStaffViewSet,
     ProfileAPIView,
+    ProfilePasswordAPIView,
     ProfileQRAPIView,
 )
 
 router = DefaultRouter()
 router.register("cargo-companies", CargoCompanyViewSet, basename="cargo-companies")
+router.register("admin/cargos", AdminCargoViewSet, basename="admin-cargos")
 router.register("auth", AuthViewSet, basename="auth")
 router.register("pickup-points", PickupPointViewSet, basename="pickup-points")
 router.register("shops", ShopViewSet, basename="shops")
 router.register("orders", OrderViewSet, basename="orders")
 router.register("parcels", ParcelViewSet, basename="parcels")
+router.register("history", OperationHistoryViewSet, basename="history")
 router.register("city-delivery", CityDeliveryRequestViewSet, basename="city-delivery")
 router.register("city-delivery-tariffs", CityDeliveryTariffViewSet, basename="city-delivery-tariffs")
 router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
 router.register("manage/staff", ManagedStaffViewSet, basename="manage-staff")
+router.register("manage/clients", ManagedClientViewSet, basename="manage-clients")
+router.register(
+    "manage/city-delivery", ManagedCityDeliveryRequestViewSet, basename="manage-city-delivery"
+)
 router.register(
     "manage/pickup-points", ManagedPickupPointViewSet, basename="manage-pickup-points"
 )
@@ -72,6 +83,7 @@ urlpatterns = [
     path("account-deletion", _delete_account_view, name="account-deletion"),
     path("account-deletion/", _delete_account_view),
     path("api/profile/", ProfileAPIView.as_view(), name="profile"),
+    path("api/profile/password/", ProfilePasswordAPIView.as_view(), name="profile-password"),
     path("api/profile/qr/", ProfileQRAPIView.as_view(), name="profile-qr"),
     path(
         "api/profile/notification-preferences/",
@@ -85,6 +97,7 @@ urlpatterns = [
         name="manage-dashboard",
     ),
     path("api/admin/overview/", AdminOverviewAPIView.as_view(), name="admin-overview"),
+    path("api/delivery-address/", DeliveryAddressAPIView.as_view(), name="delivery-address"),
     path("api/", include(router.urls)),
 ]
 

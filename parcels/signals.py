@@ -15,6 +15,9 @@ def remember_old_status(sender, instance, **kwargs):
     instance._old_status = (
         Parcel.objects.filter(pk=instance.pk).values_list("status", flat=True).first()
     )
+    # Выдан → в архив (для полных сохранений: админка, импорт).
+    if instance.status == Parcel.Status.ISSUED:
+        instance.is_archived = True
     # Stamp arrived_at / issued_at on full saves (admin edits, CSV import).
     # Paths that save with update_fields handle it themselves.
     instance.apply_status_timestamps()
@@ -35,6 +38,10 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
         comment=comment,
         changed_by=changed_by,
     )
+
+    # Авто-шаги цепочки пишут историю, но не пушат клиенту (без спама).
+    if getattr(instance, "_suppress_notification", False):
+        return
 
     # Pending-посылки сканера ещё не привязаны к клиенту — уведомлять некого.
     if instance.user_id is None:

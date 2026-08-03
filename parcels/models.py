@@ -9,9 +9,12 @@ class Parcel(models.Model):
         PURCHASED = "purchased", _("Выкуплен")
         WAITING_CHINA_WAREHOUSE = "waiting_china_warehouse", _("Ожидается на складе в Китае")
         ARRIVED_CHINA_WAREHOUSE = "arrived_china_warehouse", _("Прибыл на склад в Китае")
-        SENT_TO_KYRGYZSTAN = "sent_to_kyrgyzstan", _("Отправлен в Кыргызстан")
+        IN_STORAGE = "in_storage", _("Отправлен на хранение")
+        SENT_TO_KYRGYZSTAN = "sent_to_kyrgyzstan", _("Отправлен со склада, в пути")
+        IN_TRANSIT = "in_transit", _("В пути")
         ARRIVED_KYRGYZSTAN = "arrived_kyrgyzstan", _("Прибыл в Кыргызстан")
-        AT_PICKUP_POINT = "at_pickup_point", _("В ПВЗ")
+        PROCESSING = "processing", _("Классификация и обработка")
+        AT_PICKUP_POINT = "at_pickup_point", _("Прибыл в пункт выдачи")
         CITY_DELIVERY = "city_delivery", _("Передан на доставку по городу")
         DELIVERED = "delivered", _("Доставлен")
         ISSUED = "issued", _("Выдан клиенту")
@@ -21,7 +24,10 @@ class Parcel(models.Model):
         "cargo.CargoCompany",
         on_delete=models.PROTECT,
         related_name="parcels",
+        null=True,
+        blank=True,
         verbose_name=_("Карго-центр"),
+        help_text=_("Может быть пустым для «ничьих» посылок со склада в Китае до привязки к клиенту."),
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -39,6 +45,15 @@ class Parcel(models.Model):
         related_name="parcels",
         verbose_name=_("Заказ"),
     )
+    pickup_point = models.ForeignKey(
+        "pickup_points.PickupPoint",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="parcels",
+        verbose_name=_("ПВЗ приёмки"),
+        help_text=_("Физический пункт выдачи, где посылка принята (ставится при статусе «В ПВЗ»)."),
+    )
     track_number = models.CharField(_("Трек-номер"), max_length=128, unique=True)
     client_code = models.CharField(_("Клиентский код"), max_length=16, db_index=True)
     status = models.CharField(
@@ -52,6 +67,7 @@ class Parcel(models.Model):
     )
     arrived_at = models.DateTimeField(_("Дата поступления"), null=True, blank=True)
     issued_at = models.DateTimeField(_("Дата выдачи"), null=True, blank=True)
+    is_archived = models.BooleanField(_("В архиве"), default=False, db_index=True)
     created_at = models.DateTimeField(_("Создан"), auto_now_add=True)
     updated_at = models.DateTimeField(_("Обновлён"), auto_now=True)
 

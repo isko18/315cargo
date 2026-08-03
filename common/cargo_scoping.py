@@ -12,6 +12,24 @@ def get_request_cargo_id(user):
     return user.cargo_id
 
 
+def bound_pickup_id(user):
+    """ПВЗ, к которому жёстко привязан оператор (иначе None).
+
+    Обычный сотрудник с назначенным ПВЗ (не админ карго / не супер / не
+    оператор Китая) видит данные только своего пункта выдачи.
+    """
+    if not user or not user.is_authenticated:
+        return None
+    if (
+        getattr(user, "is_staff", False)
+        and not user.is_superuser
+        and not getattr(user, "is_cargo_admin", False)
+        and not getattr(user, "is_china_staff", False)
+    ):
+        return getattr(user, "pickup_point_id", None)
+    return None
+
+
 def filter_queryset_by_cargo(queryset, user, lookup="cargo"):
     cargo_id = get_request_cargo_id(user)
     if cargo_id:

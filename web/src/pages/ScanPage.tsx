@@ -1,18 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, post } from '../api';
+import { ApiError, getRole, post } from '../api';
+import { statusMeta } from '../status';
+import { useI18n } from '../i18n';
+import { usePickup } from '../pickupContext';
+import { useBarcodeScanner } from '../useBarcodeScanner';
+import WeightInline from '../components/WeightInline';
+import OperationHistory from '../components/OperationHistory';
+import { IconScan, IconCheck, IconBox } from '../components/Icons';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Column,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+} from '../ui';
 
-const STATUSES: { value: string; label: string }[] = [
-  { value: 'arrived_china_warehouse', label: 'Прибыл на склад в Китае' },
-  { value: 'sent_to_kyrgyzstan', label: 'Отправлен в Кыргызстан' },
-  { value: 'arrived_kyrgyzstan', label: 'Прибыл в Кыргызстан' },
-  { value: 'at_pickup_point', label: 'В ПВЗ' },
-  { value: 'issued', label: 'Выдан клиенту' },
-];
+// Приём на стороне карго = 2-й скан = прибытие в ПВЗ. Промежуточные статусы
+// (в пути, прибыл в КР и т.п.) ставятся автоматически, вручную не выбираются.
+const RECEIVE_STATUS = 'at_pickup_point';
 
-const RESULT_LABEL: Record<string, string> = {
-  updated: 'обновлён',
-  created_from_order: 'создан из заказа',
-  created_pending: 'создан (без клиента)',
+const RESULT_TONE: Record<string, 'blue' | 'green' | 'amber' | 'gray'> = {
+  updated: 'blue',
+  unchanged: 'gray',
+  created_from_order: 'green',
+  created_pending: 'amber',
 };
 
 type Parcel = {
@@ -22,13 +40,21 @@ type Parcel = {
   status_display_name: string;
   client_code: string | null;
   user: number | null;
+  weight: string | null;
+  delivery_price: string | null;
 };
 
 type Entry = { result: string; parcel: Parcel };
 
 export default function ScanPage() {
+  const { t } = useI18n();
+  const { points, activeId } = usePickup();
+  const activePoint = points.find((p) => p.id === activeId);
+  // «Карго ID» нужен только супер-админу (у него нет своего карго). У обычного
+  // оператора/админа карго берётся из аккаунта — поле не показываем.
+  const isSuper = Boolean(getRole().is_superuser);
   const [track, setTrack] = useState('');
-  const [status, setStatus] = useState(STATUSES[0].value);
+  const [weight, setWeight] = useState('');
   const [cargo, setCargo] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -39,17 +65,21 @@ export default function ScanPage() {
     inputRef.current?.focus();
   }, []);
 
-  async function scan() {
-    const tn = track.trim();
+  async function scan(codeArg?: string) {
+    const tn = (codeArg ?? track).trim();
     if (!tn || busy) return;
     setErr('');
     setBusy(true);
     try {
-      const body: Record<string, unknown> = { track_number: tn, status };
+      const body: Record<string, unknown> = { track_number: tn, status: RECEIVE_STATUS };
+      if (weight.trim()) body.weight = weight.trim();
       if (cargo.trim()) body.cargo = Number(cargo.trim());
+      // Активный ПВЗ (переключатель) — бэкенд запишет его адрес при статусе «В ПВЗ».
+      if (activeId) body.pickup_point = activeId;
       const r = await post<Entry>('/api/parcels/scan/', body);
       setLog((l) => [r, ...l]);
       setTrack('');
+      setWeight('');
     } catch (e) {
       setErr((e as ApiError).message);
     } finally {
@@ -58,118 +88,182 @@ export default function ScanPage() {
     }
   }
 
-  async function assign(entryIdx: number, clientCode: string) {
+  // Глобальный перехват штрих-сканера — работает без клика в поле.
+  useBarcodeScanner((code) => {
+    setTrack(code);
+    scan(code);
+  });
+
+  async function assign(entryId: number, clientCode: string) {
     const cc = clientCode.trim();
     if (!cc) return;
-    const p = log[entryIdx].parcel;
+    const entry = log.find((e) => e.parcel.id === entryId);
+    if (!entry) return;
     setErr('');
     try {
-      const updated = await post<Parcel>(`/api/parcels/${p.id}/assign/`, { client_code: cc });
-      setLog((l) => l.map((e, i) => (i === entryIdx ? { ...e, parcel: updated } : e)));
+      const updated = await post<Parcel>(`/api/parcels/${entryId}/assign/`, { client_code: cc });
+      setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
     } catch (e) {
       setErr((e as ApiError).message);
     }
   }
 
+  // Уточнение веса уже принятой посылки (после скана) — цена пересчитывается.
+  async function saveWeight(entryId: number, w: string) {
+    setErr('');
+    try {
+      const updated = await post<Parcel>(`/api/parcels/${entryId}/weight/`, {
+        weight: w === '' ? null : w,
+      });
+      setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
+    } catch (e) {
+      setErr((e as ApiError).message);
+      throw e;
+    }
+  }
+
+  const withWeight = log.filter((e) => e.parcel.weight).length;
+
+  const columns: Column<Entry>[] = [
+    { key: 'track', header: t('common.track'), render: (e) => <span className="mono strong">{e.parcel.track_number}</span> },
+    {
+      key: 'result',
+      header: t('common.result'),
+      render: (e) => <Badge variant={RESULT_TONE[e.result] ?? 'gray'}>{t(`result.${e.result}`)}</Badge>,
+    },
+    {
+      key: 'status',
+      header: t('common.status'),
+      render: (e) => (
+        <Badge variant={statusMeta(e.parcel.status).tone} dot>
+          {t(`status.${e.parcel.status}`)}
+        </Badge>
+      ),
+    },
+    {
+      key: 'weight',
+      header: t('op.weightKg'),
+      align: 'right',
+      render: (e) => (
+        <WeightInline value={e.parcel.weight} onSave={(w) => saveWeight(e.parcel.id, w)} />
+      ),
+    },
+    {
+      key: 'price',
+      header: t('op.priceUsd'),
+      align: 'right',
+      render: (e) => <span className="num">{e.parcel.delivery_price ? `$${e.parcel.delivery_price}` : '—'}</span>,
+    },
+    {
+      key: 'client',
+      header: t('common.client'),
+      render: (e) =>
+        e.parcel.user ? (
+          <Badge variant="ok" className="mono">{e.parcel.client_code}</Badge>
+        ) : (
+          <AssignInline onAssign={(cc) => assign(e.parcel.id, cc)} t={t} />
+        ),
+    },
+  ];
+
   return (
     <div>
-      <h1>Приём посылок по штрих-коду</h1>
+      <PageHeader title={t('scan.title')} subtitle={t('scan.subtitle')} />
 
-      <div className="card">
-        <div className="row">
-          <div style={{ flex: 3 }}>
-            <label>Штрих-код / трек-номер (сканер + Enter)</label>
-            <input
-              ref={inputRef}
-              className="scan-input"
-              value={track}
-              onChange={(e) => setTrack(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && scan()}
-              placeholder="отсканируйте штрих-код…"
-              autoComplete="off"
-            />
-          </div>
-          <div style={{ flex: 2 }}>
-            <label>Статус</label>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button onClick={scan} disabled={busy || !track.trim()}>
-            Принять
-          </button>
-        </div>
-        <label style={{ marginTop: 8 }}>
-          Карго ID (только для супер-админа без своего карго)
-        </label>
-        <input
-          value={cargo}
-          onChange={(e) => setCargo(e.target.value)}
-          placeholder="напр. 1 — оставь пустым, если ты оператор карго"
-          style={{ maxWidth: 320 }}
+      <Card>
+        <CardHeader
+          title={t('scan.cardTitle')}
+          description={t('scan.cardDesc')}
+          actions={
+            <div className="cluster gap-sm">
+              <Badge variant="violet" dot>{t('status.at_pickup_point')}</Badge>
+              {activePoint ? (
+                <Badge variant="plain">{activePoint.title}</Badge>
+              ) : (
+                <Badge variant="warn">{t('scan.pvzAuto')}</Badge>
+              )}
+            </div>
+          }
         />
-        {err && <div className="error">{err}</div>}
-      </div>
+        <CardBody>
+          <div className="row">
+            <Field label={t('scan.trackLabel')} style={{ flex: 3 }}>
+              <Input
+                ref={inputRef}
+                className="scan-input"
+                icon={<IconScan size={18} />}
+                value={track}
+                onChange={(e) => setTrack(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && scan()}
+                placeholder={t('scan.trackPlaceholder')}
+                autoComplete="off"
+              />
+            </Field>
+            <Field label={t('op.weight')} style={{ flex: 1, minWidth: 140 }}>
+              <Input
+                type="number"
+                min="0"
+                step="0.001"
+                inputMode="decimal"
+                suffix="кг"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && scan()}
+                placeholder={t('scan.weightPlaceholder')}
+              />
+            </Field>
+            <Button onClick={() => scan()} loading={busy} disabled={!track.trim()} icon={<IconCheck size={18} />}>
+              {t('scan.accept')}
+            </Button>
+          </div>
 
-      {log.length > 0 && (
-        <div className="card">
-          <h2>Отсканировано за сессию: {log.length}</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Трек</th>
-                <th>Результат</th>
-                <th>Статус</th>
-                <th>Клиент</th>
-              </tr>
-            </thead>
-            <tbody>
-              {log.map((e, i) => (
-                <tr key={`${e.parcel.id}-${i}`}>
-                  <td>{e.parcel.track_number}</td>
-                  <td>
-                    <span className="badge">{RESULT_LABEL[e.result] || e.result}</span>
-                  </td>
-                  <td>{e.parcel.status_display_name}</td>
-                  <td>
-                    {e.parcel.user ? (
-                      <span className="badge ok">{e.parcel.client_code}</span>
-                    ) : (
-                      <AssignInline onAssign={(cc) => assign(i, cc)} />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          {isSuper && (
+            <Field label={t('op.cargoId')} helper={t('op.cargoIdHelperSuper')} className="mt-md" style={{ maxWidth: 340 }}>
+              <Input value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="1" />
+            </Field>
+          )}
+
+          {err && <Alert variant="error">{err}</Alert>}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title={t('scan.session')}
+          actions={
+            <div className="cluster gap-sm">
+              <Badge variant="plain">{log.length} {t('wh.pcs')}</Badge>
+              {withWeight > 0 && <Badge variant="ok">{withWeight} {t('scan.withWeight')}</Badge>}
+            </div>
+          }
+        />
+        <DataTable
+          columns={columns}
+          rows={log}
+          getRowKey={(e) => e.parcel.id}
+          empty={<EmptyState icon={<IconBox size={26} />} title={t('scan.emptyTitle')} description={t('scan.emptyDesc')} />}
+        />
+      </Card>
+
+      <OperationHistory type="receive" reloadSignal={log.length} />
     </div>
   );
 }
 
-function AssignInline({ onAssign }: { onAssign: (code: string) => void }) {
+function AssignInline({ onAssign, t }: { onAssign: (code: string) => void; t: (k: string) => string }) {
   const [code, setCode] = useState('');
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      <input
+    <div className="cluster gap-sm" style={{ flexWrap: 'nowrap' }}>
+      <Input
         value={code}
         onChange={(e) => setCode(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && onAssign(code)}
-        placeholder="код клиента"
-        style={{ padding: '6px 8px', fontSize: 13 }}
+        placeholder={t('scan.assignPlaceholder')}
+        style={{ padding: '6px 10px', fontSize: 13, maxWidth: 130 }}
       />
-      <button
-        className="ghost"
-        style={{ padding: '6px 10px' }}
-        onClick={() => onAssign(code)}
-      >
-        Привязать
-      </button>
+      <Button variant="subtle" size="sm" onClick={() => onAssign(code)}>
+        {t('scan.assign')}
+      </Button>
     </div>
   );
 }

@@ -14,4 +14,9 @@ app.conf.beat_schedule = {
         "task": "integrations.sync_all_pinduoduo_accounts",
         "schedule": crontab(minute=0),
     },
+    # Авто-статусы посылок (Китай → хранение → в пути → … → ожидание ПВЗ).
+    "advance-parcels-every-5-min": {
+        "task": "parcels.advance_parcels",
+        "schedule": crontab(minute="*/5"),
+    },
 }

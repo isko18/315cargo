@@ -9,6 +9,13 @@ class CargoCompany(models.Model):
     logo = models.ImageField(_("Логотип"), upload_to="cargo_logos/", null=True, blank=True)
     phone = models.CharField(_("Телефон"), max_length=32, blank=True)
     address = models.TextField(_("Адрес"), blank=True)
+    price_per_kg_usd = models.DecimalField(
+        _("Цена за кг, $"),
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text=_("Стоимость доставки за 1 кг в долларах США"),
+    )
     is_active = models.BooleanField(_("Активен"), default=True)
     created_at = models.DateTimeField(_("Создан"), auto_now_add=True)
     updated_at = models.DateTimeField(_("Обновлён"), auto_now=True)

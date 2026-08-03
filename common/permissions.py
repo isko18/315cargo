@@ -1,6 +1,23 @@
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from .cargo_scoping import user_is_cargo_manager
+from .tabs import user_allowed_tabs
+
+
+class HasTabAccess(BasePermission):
+    """Доступ к управляющей вкладке по персональным правам оператора.
+
+    View задаёт атрибут ``required_tab``. Супер-владелец и админ карго
+    проходят по роли; оператор — только если вкладка ему выдана.
+    """
+
+    message = "Нет доступа к этому разделу"
+
+    def has_permission(self, request, view):
+        tab = getattr(view, "required_tab", None)
+        if tab is None:
+            return True
+        return tab in user_allowed_tabs(request.user)
 
 
 class IsOwnerOrStaff(BasePermission):

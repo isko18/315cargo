@@ -121,6 +121,19 @@ CORS_ALLOWED_ORIGINS = [
 # JWT в заголовке Authorization — cookies не нужны.
 CORS_ALLOW_CREDENTIALS = False
 
+# Прод-хардненинг: включается только когда DEBUG=0 (локально не влияет).
+if not DEBUG:
+    # За обратным прокси (nginx) определяем HTTPS по заголовку.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+
 
 def _parse_otp_test_numbers(raw):
     """`+996700000000:0000,+996...:1234` → {phone: fixed_code}."""
@@ -222,6 +235,19 @@ PINDUODUO_CLIENT_PATH = os.getenv("PINDUODUO_CLIENT_PATH", "")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
+
+# Авто-цепочка статусов после 1-го скана (склад в Китае). Значения — сколько
+# времени посылка остаётся в статусе, прежде чем перейти в следующий (секунды).
+# Celery-задача `parcels.advance_parcels` (beat, каждые 5 мин) двигает посылки
+# по цепочке. Локально без Celery: `manage.py advance_parcels --loop`. После
+# "processing" — ожидание 2-го скана в ПВЗ (at_pickup_point).
+AUTO_STATUS_DELAYS = {
+    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10 * 60)),  # 10 мин → на хранение
+    "in_storage": int(os.getenv("AUTO_DELAY_IN_STORAGE", 2 * 86400)),               # 2 дня → отправлен
+    "sent_to_kyrgyzstan": int(os.getenv("AUTO_DELAY_SENT", 4 * 86400)),             # 4 дня → в пути
+    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 86400)),                   # 1 день → прибыл в КР
+    "arrived_kyrgyzstan": int(os.getenv("AUTO_DELAY_ARRIVED_KG", 2 * 3600)),        # 2 часа → обработка
+}
 
 LOGGING = {
     "version": 1,

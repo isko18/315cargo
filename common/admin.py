@@ -1,6 +1,23 @@
 from django.contrib import admin
 
-from .models import AuditLog
+from .models import AuditLog, DeliveryAddress
+
+
+@admin.register(DeliveryAddress)
+class DeliveryAddressAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "recipient_name", "city", "is_active", "updated_at")
+    readonly_fields = ("updated_at", "updated_by")
+
+    def has_add_permission(self, request):
+        # Singleton: одна запись, создаётся автоматически.
+        return not DeliveryAddress.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(AuditLog)

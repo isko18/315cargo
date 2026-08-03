@@ -55,3 +55,82 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DeliveryAddress(models.Model):
+    """Глобальный адрес доставки (склад в Китае для PDD).
+
+    Единственная запись на всю платформу (singleton, pk=1). Заполняет только
+    супер-владелец; все карго и их клиенты используют этот же адрес. Клиент в
+    приложении получает адрес с уже вшитым СВОИМ клиентским кодом в имени
+    получателя (收货人) — чтобы при приёмке в Китае опознать коробку.
+    """
+
+    recipient_name = models.CharField(
+        _("Получатель по умолчанию (收货人)"),
+        max_length=128,
+        blank=True,
+        help_text=_("Запасное имя, если у зрителя нет кода. Клиенту подставляется его код."),
+    )
+    phone = models.CharField(_("Телефон (手机号)"), max_length=32, blank=True)
+    province = models.CharField(_("Провинция (省)"), max_length=64, blank=True)
+    city = models.CharField(_("Город (市)"), max_length=64, blank=True)
+    district = models.CharField(_("Район (区/县)"), max_length=64, blank=True)
+    detail_address = models.CharField(_("Детальный адрес (详细地址)"), max_length=255, blank=True)
+    postal_code = models.CharField(_("Индекс (邮编)"), max_length=16, blank=True)
+    instructions = models.TextField(
+        _("Памятка клиенту"),
+        blank=True,
+        help_text=_("Напр.: обязательно укажите свой код в имени получателя."),
+    )
+    is_active = models.BooleanField(_("Активен"), default=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Кто изменил"),
+    )
+    updated_at = models.DateTimeField(_("Обновлён"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Адрес доставки (Китай)")
+        verbose_name_plural = _("Адрес доставки (Китай)")
+
+    def save(self, *args, **kwargs):
+        # Singleton: всегда одна запись.
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return _("Адрес доставки (Китай)")
+
+    def recipient_with_code(self, client_code=None):
+        """Имя получателя (收货人) = клиентский код.
+
+        Подставляется ТОЛЬКО код клиента — по нему в Китае опознают коробку.
+        Если кода нет (напр. предпросмотр у сотрудника) — базовое имя как запас.
+        """
+        code = (client_code or "").strip()
+        return code or (self.recipient_name or "").strip()
+
+    def region_line(self):
+        """省市区 одной строкой (как ожидает умное распознавание PDD)."""
+        return "".join(p for p in (self.province, self.city, self.district) if p)
+
+    def one_line(self, client_code=None):
+        """Готовая строка для вставки в PDD (智能填写)."""
+        parts = [
+            self.recipient_with_code(client_code),
+            (self.phone or "").strip(),
+            self.region_line(),
+            (self.detail_address or "").strip(),
+            (self.postal_code or "").strip(),
+        ]
+        return " ".join(p for p in parts if p)

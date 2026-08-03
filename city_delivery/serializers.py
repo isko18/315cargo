@@ -123,6 +123,55 @@ class CityDeliveryRequestSerializer(serializers.ModelSerializer):
             self.fields["parcel"].queryset = Parcel.objects.filter(user=request.user)
 
 
+class ManagedCityDeliveryRequestSerializer(serializers.ModelSerializer):
+    """Заявка на доставку в панели: оператор меняет статус/курьера/дату."""
+
+    status_display_name = serializers.CharField(source="get_status_display", read_only=True)
+    track_number = serializers.CharField(source="parcel.track_number", read_only=True)
+    client_name = serializers.CharField(source="user.full_name", read_only=True)
+    client_phone = serializers.CharField(source="user.phone", read_only=True)
+    client_code = serializers.CharField(source="user.client_code", read_only=True)
+    tariff_title = serializers.CharField(source="tariff.title", read_only=True, default=None)
+
+    class Meta:
+        model = CityDeliveryRequest
+        fields = (
+            "id",
+            "user",
+            "client_name",
+            "client_phone",
+            "client_code",
+            "parcel",
+            "track_number",
+            "tariff",
+            "tariff_title",
+            "address",
+            "recipient_name",
+            "recipient_phone",
+            "comment",
+            "price",
+            "status",
+            "status_display_name",
+            "delivery_date",
+            "delivery_time_slot",
+            "delivered_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "user",
+            "parcel",
+            "track_number",
+            "tariff",
+            "price",
+            "status_display_name",
+            "delivered_at",
+            "created_at",
+            "updated_at",
+        )
+
+
 class CityDeliveryEstimateRequestSerializer(serializers.Serializer):
     parcel = serializers.IntegerField(help_text="ID посылки")
 

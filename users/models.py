@@ -64,6 +64,23 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=False,
         help_text=_("Полный доступ к управлению своим карго-центром в админке и API"),
     )
+    is_china_staff = models.BooleanField(
+        _("Оператор склада в Китае"),
+        default=False,
+        help_text=_(
+            "Принимает товары на складе в Китае: доступны только статусы "
+            "китайского склада и отправки, без выдачи и управления."
+        ),
+    )
+    allowed_tabs = models.JSONField(
+        _("Доступные вкладки"),
+        default=list,
+        blank=True,
+        help_text=_(
+            "Список вкладок панели, доступных обычному оператору. "
+            "Игнорируется для админов карго и супер-владельца."
+        ),
+    )
     created_at = models.DateTimeField(_("Создан"), auto_now_add=True)
     updated_at = models.DateTimeField(_("Обновлён"), auto_now=True)
 

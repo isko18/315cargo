@@ -1,15 +1,18 @@
+from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
-from django.db.models import Q
-
-from rest_framework.exceptions import ValidationError
-
-from common.cargo_scoping import filter_owned_queryset, get_request_cargo_id
-from common.permissions import IsCargoManager, IsOwnerOrStaff
+from common.cargo_scoping import (
+    bound_pickup_id,
+    filter_owned_queryset,
+    get_request_cargo_id,
+)
+from common.permissions import HasTabAccess, IsCargoManager, IsOwnerOrStaff
 from parcels.models import Parcel
 
 from .models import CityDeliveryRequest, CityDeliveryTariff
@@ -18,6 +21,7 @@ from .serializers import (
     CityDeliveryEstimateResponseSerializer,
     CityDeliveryRequestSerializer,
     CityDeliveryTariffSerializer,
+    ManagedCityDeliveryRequestSerializer,
     ManagedCityDeliveryTariffSerializer,
 )
 from .services import calculate_price
@@ -99,11 +103,49 @@ class CityDeliveryTariffViewSet(ReadOnlyModelViewSet):
         return queryset
 
 
+class ManagedCityDeliveryRequestViewSet(ModelViewSet):
+    """Панель: заявки на доставку по городу — просмотр и смена статуса."""
+
+    serializer_class = ManagedCityDeliveryRequestSerializer
+    permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
+    required_tab = "delivery"
+    http_method_names = ("get", "patch", "head", "options")
+    queryset = CityDeliveryRequest.objects.none()
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return CityDeliveryRequest.objects.none()
+        qs = CityDeliveryRequest.objects.select_related("user", "user__pickup_point", "parcel", "tariff")
+        cargo_id = get_request_cargo_id(self.request.user)
+        if cargo_id:
+            qs = qs.filter(user__cargo_id=cargo_id)
+        pickup_id = bound_pickup_id(self.request.user)
+        if pickup_id:
+            qs = qs.filter(user__pickup_point_id=pickup_id)
+        return qs.order_by("-created_at")
+
+    def perform_update(self, serializer):
+        from parcels.services import update_parcel_status
+
+        old_status = serializer.instance.status
+        instance = serializer.save()
+        # Бизнес-логика: отметки времени и синхронизация статуса посылки.
+        if instance.status != old_status:
+            if instance.status == CityDeliveryRequest.Status.DELIVERED:
+                if instance.delivered_at is None:
+                    instance.delivered_at = timezone.now()
+                    instance.save(update_fields=["delivered_at"])
+                update_parcel_status(instance.parcel, Parcel.Status.DELIVERED, comment="Доставлено по городу")
+            elif instance.status == CityDeliveryRequest.Status.IN_DELIVERY:
+                update_parcel_status(instance.parcel, Parcel.Status.CITY_DELIVERY, comment="Передан на доставку")
+
+
 class ManagedCityDeliveryTariffViewSet(ModelViewSet):
     """Панель владельца карго: CRUD тарифов своего карго."""
 
     serializer_class = ManagedCityDeliveryTariffSerializer
-    permission_classes = (IsAuthenticated, IsCargoManager)
+    permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
+    required_tab = "delivery_tariff"
     queryset = CityDeliveryTariff.objects.none()
 
     def get_queryset(self):

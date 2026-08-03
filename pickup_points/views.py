@@ -3,7 +3,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from common.cargo_scoping import filter_queryset_by_cargo
-from common.permissions import IsCargoManager
+from common.permissions import HasTabAccess, IsCargoManager
 
 from .models import PickupPoint
 from .serializers import ManagedPickupPointSerializer, PickupPointSerializer
@@ -32,7 +32,8 @@ class ManagedPickupPointViewSet(ModelViewSet):
     """Панель владельца карго: CRUD своих ПВЗ."""
 
     serializer_class = ManagedPickupPointSerializer
-    permission_classes = (IsAuthenticated, IsCargoManager)
+    permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
+    required_tab = "pickup"
     queryset = PickupPoint.objects.none()
 
     def get_queryset(self):

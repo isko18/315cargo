@@ -10,6 +10,44 @@ export function clearToken() {
   localStorage.removeItem('access');
 }
 
+export type Role = {
+  is_china_staff?: boolean;
+  is_cargo_admin?: boolean;
+  is_superuser?: boolean;
+  is_staff?: boolean;
+  allowed_tabs?: string[];
+  pickup_point?: number | null;
+};
+export function setRole(r: Role) {
+  localStorage.setItem('role', JSON.stringify(r));
+}
+export function getRole(): Role {
+  try {
+    return JSON.parse(localStorage.getItem('role') || '{}');
+  } catch {
+    return {};
+  }
+}
+export function clearRole() {
+  localStorage.removeItem('role');
+}
+export function isChinaOnly(r: Role = getRole()): boolean {
+  return Boolean(r.is_china_staff && !r.is_cargo_admin && !r.is_superuser);
+}
+// Оператор привязан к одному ПВЗ: сервер жёстко ограничивает его склад этим
+// ПВЗ, а переключатель ПВЗ для него не нужен (и мог бы спрятать его посылки).
+export function isPickupBound(r: Role = getRole()): boolean {
+  return Boolean(
+    r.is_staff && !r.is_cargo_admin && !r.is_superuser && !r.is_china_staff && r.pickup_point,
+  );
+}
+export function allowedTabs(r: Role = getRole()): string[] {
+  return Array.isArray(r.allowed_tabs) ? r.allowed_tabs : [];
+}
+export function canAccessTab(tab: string, r: Role = getRole()): boolean {
+  return allowedTabs(r).includes(tab);
+}
+
 export class ApiError extends Error {
   status: number;
   data: any;
@@ -25,8 +63,12 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
     'Content-Type': 'application/json',
     ...(opts.headers as Record<string, string> | undefined),
   };
+  // Не прикрепляем токен к auth-эндпоинтам: протухший access иначе даёт
+  // 401 «token not valid» на самом логине (SimpleJWT отвергает плохой токен
+  // до проверки прав, несмотря на AllowAny).
+  const isAuthEndpoint = path.startsWith('/api/auth/');
   const t = getToken();
-  if (t) headers['Authorization'] = `Bearer ${t}`;
+  if (t && !isAuthEndpoint) headers['Authorization'] = `Bearer ${t}`;
 
   const res = await fetch(BASE + path, { ...opts, headers });
   const text = await res.text();
