@@ -548,6 +548,7 @@ td .num { font-variant-numeric: tabular-nums; font-weight: 600; }
   display: grid; place-items: center;
 }
 .pw-toggle:hover { background: var(--surface-2); color: var(--text-muted); box-shadow: none; }
+.pw-toggle:focus, .pw-toggle:focus-visible { outline: none; box-shadow: none; }
 .scan-input { font-size: 18px; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
 input.scan-big { height: 54px; font-size: 20px; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
 @keyframes rowFlash { 0% { background: var(--ok-bg); } 100% { background: transparent; } }
