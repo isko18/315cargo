@@ -483,6 +483,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     'daddr.previewNote': 'В приложении вместо демо-кода подставляется реальный код клиента, здесь для примера:',
 
     // История операций (приём/выдача)
+    'hist.tab': 'История',
     'hist.title': 'История операций',
     'hist.subtitleManager': 'Приёмы и выдачи по вашему карго. Фильтруйте по оператору, типу и датам.',
     'hist.subtitleMine': 'Ваши приёмы и выдачи.',
@@ -1008,6 +1009,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     'daddr.previewNote': '应用中会用客户真实代码替换示例代码，此处仅为示例：',
 
     // 操作历史（收货/出货）
+    'hist.tab': '历史',
     'hist.title': '操作历史',
     'hist.subtitleManager': '本货运的收货与出货。可按操作员、类型和日期筛选。',
     'hist.subtitleMine': '您的收货与出货记录。',

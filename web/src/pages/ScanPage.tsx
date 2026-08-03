@@ -20,6 +20,8 @@ import {
   Field,
   Input,
   PageHeader,
+  Segmented,
+  type SegmentedOption,
 } from '../ui';
 
 // Приём на стороне карго = 2-й скан = прибытие в ПВЗ. Промежуточные статусы
@@ -53,6 +55,7 @@ export default function ScanPage() {
   // «Карго ID» нужен только супер-админу (у него нет своего карго). У обычного
   // оператора/админа карго берётся из аккаунта — поле не показываем.
   const isSuper = Boolean(getRole().is_superuser);
+  const [view, setView] = useState<'scan' | 'history'>('scan');
   const [track, setTrack] = useState('');
   const [weight, setWeight] = useState('');
   const [cargo, setCargo] = useState('');
@@ -166,10 +169,23 @@ export default function ScanPage() {
     },
   ];
 
+  const tabOptions: SegmentedOption<'scan' | 'history'>[] = [
+    { value: 'scan', label: t('nav.scan') },
+    { value: 'history', label: t('hist.tab') },
+  ];
+
   return (
     <div>
       <PageHeader title={t('scan.title')} subtitle={t('scan.subtitle')} />
 
+      <div className="mb-lg">
+        <Segmented options={tabOptions} value={view} onChange={setView} ariaLabel={t('hist.tab')} />
+      </div>
+
+      {view === 'history' ? (
+        <OperationHistory type="receive" reloadSignal={log.length} />
+      ) : (
+      <>
       <Card>
         <CardHeader
           title={t('scan.cardTitle')}
@@ -244,8 +260,8 @@ export default function ScanPage() {
           empty={<EmptyState icon={<IconBox size={26} />} title={t('scan.emptyTitle')} description={t('scan.emptyDesc')} />}
         />
       </Card>
-
-      <OperationHistory type="receive" reloadSignal={log.length} />
+      </>
+      )}
     </div>
   );
 }

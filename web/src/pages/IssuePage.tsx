@@ -46,6 +46,7 @@ export default function IssuePage() {
   const { t } = useI18n();
   // «Карго ID» — только для супер-админа без своего карго.
   const isSuper = Boolean(getRole().is_superuser);
+  const [tab, setTab] = useState<'issue' | 'history'>('issue');
   const [clientCode, setClientCode] = useState('');
   const [debounced, setDebounced] = useState('');
   const [cargo, setCargo] = useState('');
@@ -264,9 +265,18 @@ export default function IssuePage() {
 
   const readyCount = (parcels ?? []).filter((p) => p.status === READY).length;
 
+  const tabOptions: SegmentedOption<'issue' | 'history'>[] = [
+    { value: 'issue', label: t('nav.issue') },
+    { value: 'history', label: t('hist.tab') },
+  ];
+
   return (
     <div>
       <PageHeader title={t('issue.title')} subtitle={t('issue.subtitle')} />
+
+      <div className="mb-lg">
+        <Segmented options={tabOptions} value={tab} onChange={setTab} ariaLabel={t('hist.tab')} />
+      </div>
 
       {scanning && (
         <Suspense fallback={null}>
@@ -274,6 +284,10 @@ export default function IssuePage() {
         </Suspense>
       )}
 
+      {tab === 'history' ? (
+        <OperationHistory type="issue" reloadSignal={issuedTick} />
+      ) : (
+      <>
       <Card>
         <CardHeader title={t('issue.findCard')} description={t('issue.findCardDesc')} />
         <CardBody>
@@ -352,8 +366,8 @@ export default function IssuePage() {
           </div>
         </Card>
       )}
-
-      <OperationHistory type="issue" reloadSignal={issuedTick} />
+      </>
+      )}
     </div>
   );
 }

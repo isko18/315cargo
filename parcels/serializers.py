@@ -121,6 +121,7 @@ class OperationHistorySerializer(serializers.ModelSerializer):
         model = ParcelStatusHistory
         fields = (
             "id",
+            "parcel",
             "type",
             "status",
             "status_display_name",
