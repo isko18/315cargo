@@ -212,3 +212,18 @@ export const IconHistory = (p: P) => (
     <path d="M12 7v5l3 2" />
   </Svg>
 );
+
+export const IconEye = (p: P) => (
+  <Svg {...p}>
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+);
+
+export const IconEyeOff = (p: P) => (
+  <Svg {...p}>
+    <path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-2.16 2.94M6.6 6.6A13.3 13.3 0 0 0 2 11s3.5 7 10 7a9.1 9.1 0 0 0 4.5-1.16" />
+    <path d="M10 10a3 3 0 0 0 4 4" />
+    <path d="m2 2 20 20" />
+  </Svg>
+);

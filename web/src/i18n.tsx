@@ -64,6 +64,8 @@ const DICT: Record<Lang, Record<string, string>> = {
     'login.submitting': 'Вход…',
     'login.error': 'Неверный логин или пароль',
     'login.note': 'Доступ только для сотрудников карго',
+    'login.showPwd': 'Показать пароль',
+    'login.hidePwd': 'Скрыть пароль',
 
     'china.title': 'Склад в Китае',
     'china.subtitle': 'Приём товаров на складе в Китае. Сканируйте трек и отмечайте прибытие / отправку. Вес и выдача — на стороне карго.',
@@ -589,6 +591,8 @@ const DICT: Record<Lang, Record<string, string>> = {
     'login.submitting': '登录中…',
     'login.error': '登录名或密码错误',
     'login.note': '仅限货运员工访问',
+    'login.showPwd': '显示密码',
+    'login.hidePwd': '隐藏密码',
 
     'china.title': '中国仓库',
     'china.subtitle': '在中国仓库接收货物。扫描运单号并标记到货 / 发货。称重与出库由货运方处理。',
