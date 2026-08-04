@@ -3,6 +3,7 @@ import { ApiError, get, getRole, post } from '../api';
 import { useI18n } from '../i18n';
 import { IconHistory, IconSearch } from './Icons';
 import WeightInline from './WeightInline';
+import ClientSearch from './ClientSearch';
 import {
   Alert,
   Badge,
@@ -105,6 +106,30 @@ export default function OperationHistory({
     };
   }, [type, reloadSignal, debounced, dateFrom, dateTo, operator]);
 
+  // Присвоение клиента «ничьей» посылке прямо из истории.
+  async function assign(parcelId: number, code: string) {
+    setErr('');
+    try {
+      const updated: any = await post(`/api/parcels/${parcelId}/assign/`, { client_code: code });
+      setRows((rs) =>
+        rs
+          ? rs.map((r) =>
+              r.parcel === parcelId
+                ? {
+                    ...r,
+                    client_code: updated.client_code,
+                    client_name: updated.client_name,
+                    pickup_point_title: updated.pickup_point_title ?? r.pickup_point_title,
+                  }
+                : r,
+            )
+          : rs,
+      );
+    } catch (e) {
+      setErr(formError(e));
+    }
+  }
+
   // Инлайн-изменение веса прямо в истории (пересчёт цены на бэкенде).
   async function saveWeight(parcelId: number, weight: string) {
     setErr('');
@@ -165,7 +190,13 @@ export default function OperationHistory({
             <div className="muted mono" style={{ fontSize: 12 }}>{r.client_code}</div>
           </div>
         ) : (
-          <Badge variant="warn">{t('common.noClient')}</Badge>
+          <div style={{ minWidth: 190 }}>
+            <ClientSearch
+              size="sm"
+              placeholder={t('scan.assignPlaceholder')}
+              onPick={(c) => assign(r.parcel, c.client_code)}
+            />
+          </div>
         ),
     },
     {

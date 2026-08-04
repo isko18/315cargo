@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ApiError, get, isPickupBound } from '../api';
+import { ApiError, get, isPickupBound, post } from '../api';
 import { statusMeta } from '../status';
 import { usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
 import ParcelDrawer, { type Parcel } from '../components/ParcelDrawer';
+import WeightInline from '../components/WeightInline';
+import ClientSearch from '../components/ClientSearch';
 import { IconSearch, IconBox, IconWeight, IconRevenue, IconWarehouse, IconDownload } from '../components/Icons';
 import { downloadCsv, today } from '../csv';
 import {
@@ -18,6 +20,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  formError,
   Input,
   PageHeader,
   Select,
@@ -134,6 +137,42 @@ export default function WarehousePage() {
     downloadCsv(`sklad-${today()}.csv`, [header, ...body]);
   }
 
+  // Инлайн-правки прямо на складе: вес (пересчёт цены) и присвоение клиента.
+  async function saveWeight(id: number, weight: string) {
+    setErr('');
+    try {
+      const u: any = await post(`/api/parcels/${id}/weight/`, { weight: weight ? weight : null });
+      setList((l) =>
+        l ? l.map((p) => (p.id === id ? { ...p, weight: u.weight, delivery_price: u.delivery_price } : p)) : l,
+      );
+    } catch (e) {
+      setErr((e as ApiError).message);
+      throw e;
+    }
+  }
+  async function assignClient(id: number, code: string) {
+    setErr('');
+    try {
+      const u: any = await post(`/api/parcels/${id}/assign/`, { client_code: code });
+      setList((l) =>
+        l
+          ? l.map((p) =>
+              p.id === id
+                ? {
+                    ...p,
+                    client_code: u.client_code,
+                    client_name: u.client_name,
+                    pickup_point_title: u.pickup_point_title ?? p.pickup_point_title,
+                  }
+                : p,
+            )
+          : l,
+      );
+    } catch (e) {
+      setErr(formError(e));
+    }
+  }
+
   const columns: Column<Parcel>[] = [
     {
       key: 'product',
@@ -166,7 +205,13 @@ export default function WarehousePage() {
             <div className="muted mono" style={{ fontSize: 12 }}>{p.client_code}</div>
           </div>
         ) : (
-          <Badge variant="warn">{t('common.noClient')}</Badge>
+          <div onClick={(e) => e.stopPropagation()} style={{ minWidth: 190 }}>
+            <ClientSearch
+              size="sm"
+              placeholder={t('scan.assignPlaceholder')}
+              onPick={(c) => assignClient(p.id, c.client_code)}
+            />
+          </div>
         ),
     },
     {
@@ -178,7 +223,13 @@ export default function WarehousePage() {
         </Badge>
       ),
     },
-    { key: 'weight', header: t('op.weight'), align: 'right', sortValue: (p) => num(p.weight), render: (p) => <span className="num">{p.weight ?? '—'}</span> },
+    {
+      key: 'weight',
+      header: t('op.weight'),
+      align: 'right',
+      sortValue: (p) => num(p.weight),
+      render: (p) => <WeightInline value={p.weight} onSave={(w) => saveWeight(p.id, w)} />,
+    },
     {
       key: 'price',
       header: t('wh.statValue'),
