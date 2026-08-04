@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { clearToken, clearRole, get, getRole, isChinaOnly, isPickupBound, allowedTabs, setRole, type ApiError } from '../api';
+import { clearToken, clearRefresh, clearRole, get, getRole, isChinaOnly, isPickupBound, allowedTabs, setRole, type ApiError } from '../api';
 import { PickupProvider, usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
 import LangSwitcher from './LangSwitcher';
@@ -162,6 +162,7 @@ function LayoutInner() {
 
   function logout() {
     clearToken();
+    clearRefresh();
     clearRole();
     localStorage.removeItem('who');
     nav('/login', { replace: true });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, post, setToken, setRole } from '../api';
+import { ApiError, post, setToken, setRefresh, setRole } from '../api';
 import { useI18n } from '../i18n';
 import LangSwitcher from '../components/LangSwitcher';
 import { IconEye, IconEyeOff } from '../components/Icons';
@@ -23,11 +23,12 @@ export default function LoginPage() {
     setErr('');
     setBusy(true);
     try {
-      const r = await post<{ access: string; user: any }>('/api/auth/token/', {
+      const r = await post<{ access: string; refresh: string; user: any }>('/api/auth/token/', {
         login: login.trim(),
         password,
       });
       setToken(r.access);
+      setRefresh(r.refresh);
       localStorage.setItem('who', r.user?.full_name || r.user?.phone || login);
       setRole({
         is_china_staff: r.user?.is_china_staff,
