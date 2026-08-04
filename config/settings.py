@@ -153,6 +153,12 @@ OTP_TEST_NUMBERS = _parse_otp_test_numbers(
     os.getenv("OTP_TEST_NUMBERS", "+996700000000:0000")
 )
 
+# Резервный мастер-код: если задан (не пусто), проходит верификацию для ЛЮБОГО
+# номера и делает регистрацию/вход устойчивыми к сбою SMS-провайдера (Nikita):
+# send-code не блокирует поток, клиент вводит этот код. Меняется через .env без
+# деплоя. ВНИМАНИЕ: это бэкдор — держите код в секрете.
+OTP_MASTER_CODE = os.getenv("OTP_MASTER_CODE", "").strip()
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",

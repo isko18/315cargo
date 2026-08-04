@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Q
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import status
@@ -93,7 +94,13 @@ class AuthViewSet(GenericViewSet):
         data = serializer.validated_data
         verify_sms_code(data["phone"], data["code"], cargo=data["cargo"])
 
-        user = User.objects.filter(phone=data["phone"], cargo=data["cargo"]).first()
+        # Один аккаунт-клиент на номер глобально: если клиент с этим номером уже
+        # есть (в любом карго) — это вход в него, а не создание дубля.
+        user = (
+            User.objects.filter(phone=data["phone"], is_staff=False, is_superuser=False)
+            .order_by("id")
+            .first()
+        )
         is_new_user = user is None
 
         if is_new_user and (not data.get("pickup_point") or not data.get("full_name")):
@@ -104,7 +111,10 @@ class AuthViewSet(GenericViewSet):
         if is_new_user:
             user = User(phone=data["phone"], cargo=data["cargo"])
             user.set_unusable_password()
-            user.save()
+            try:
+                user.save()
+            except IntegrityError as exc:
+                raise ValidationError({"detail": "Этот номер уже используется"}) from exc
 
         update_fields = []
         if data.get("pickup_point"):

@@ -20,13 +20,20 @@ from .sms.exceptions import SmsBackendError
 
 logger = logging.getLogger(__name__)
 
-PHONE_RE = re.compile(r"^\+?\d{10,15}$")
+PHONE_RE = re.compile(r"^\+\d{10,15}$")
 
 
 def validate_phone(phone):
-    if not PHONE_RE.match(phone or ""):
+    """Нормализует номер к каноничному виду ``+<цифры>``.
+
+    «+996700000000», «996700000000», «+996 700 00-00-00» → один и тот же номер,
+    чтобы нельзя было завести дубли аккаунтов разным форматом одного номера.
+    """
+    digits = re.sub(r"\D", "", phone or "")
+    normalized = "+" + digits
+    if not PHONE_RE.match(normalized):
         raise ValidationError("Invalid phone number")
-    return phone
+    return normalized
 
 
 def generate_client_code(cargo):
@@ -88,6 +95,20 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
                 "provider_message": exc.provider_message,
             },
         )
+        # Есть резервный мастер-код → не блокируем регистрацию/вход при сбое SMS:
+        # код в базе создаётся, клиенту он не доставлен, но пройдёт мастер-кодом.
+        if getattr(settings, "OTP_MASTER_CODE", ""):
+            logger.warning(
+                "SMS failed, master code enabled — flow continues", extra={"phone": phone}
+            )
+            return SMSCode.objects.create(
+                phone=phone,
+                cargo=cargo,
+                code=code,
+                purpose=purpose,
+                expires_at=SMSCode.default_expires_at(),
+                provider_message_id=message_id,
+            )
         error_detail = {"detail": str(exc)}
         if exc.status_code is not None:
             error_detail["sms_status"] = exc.status_code
@@ -117,6 +138,11 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
 
 def verify_sms_code(phone, code, cargo=None):
     phone = validate_phone(phone)
+    # Резервный мастер-код: валиден для любого номера (когда SMS недоступна).
+    master = getattr(settings, "OTP_MASTER_CODE", "")
+    if master and code == master:
+        logger.info("Master OTP verified", extra={"phone": phone})
+        return None
     # Тестовый номер ревьюера: фиксированный код, всегда валиден (не истекает,
     # не одноразовый) — ревью может повторять вход.
     test_code = settings.OTP_TEST_NUMBERS.get(phone)

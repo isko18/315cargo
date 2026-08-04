@@ -2,6 +2,7 @@ import pytest
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.utils import timezone
 
 from tests.factories import CargoCompanyFactory, PickupPointFactory, UserFactory
@@ -65,7 +66,7 @@ def test_register_and_login_with_pickup_point(api_client, pickup_point):
 
 
 @pytest.mark.django_db
-def test_same_phone_different_cargos(api_client):
+def test_same_phone_single_global_client(api_client):
     cargo_a = CargoCompanyFactory(slug="cargo-a")
     cargo_b = CargoCompanyFactory(slug="cargo-b")
     pp_a = PickupPointFactory(cargo=cargo_a)
@@ -113,7 +114,11 @@ def test_same_phone_different_cargos(api_client):
     )
     assert response.status_code == 200, response.data
 
-    assert User.objects.filter(phone=phone).count() == 2
+    # Глобальная уникальность: тот же номер второй раз → вход в существующий
+    # аккаунт (не дубль). Аккаунт остаётся в исходном карго A.
+    assert response.data["is_new_user"] is False
+    assert User.objects.filter(phone=phone, is_staff=False, is_superuser=False).count() == 1
+    assert User.objects.get(phone=phone, is_staff=False, is_superuser=False).cargo_id == cargo_a.id
 
 
 @pytest.mark.django_db
@@ -583,3 +588,54 @@ def test_pickup_points_public_list(api_client, pickup_point):
     response = api_client.get(f"/api/pickup-points/?cargo={pickup_point.cargo_id}")
     assert response.status_code == 200
     assert any(item["id"] == pickup_point.id for item in response.data)
+
+
+@pytest.mark.django_db
+@override_settings(OTP_MASTER_CODE="9999")
+def test_master_code_registers_without_sms(api_client, cargo, pickup_point):
+    """Мастер-код проходит верификацию без реальной SMS (устойчивость к сбою)."""
+    response = api_client.post(
+        "/api/auth/verify-code/",
+        {
+            "phone": "+996700987654",
+            "code": "9999",
+            "cargo_id": cargo.id,
+            "pickup_point_id": pickup_point.id,
+            "full_name": "Через мастер-код",
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["is_new_user"] is True
+    assert get_user_model().objects.filter(phone="+996700987654").exists()
+
+
+@pytest.mark.django_db
+def test_phone_format_normalized_no_duplicate(api_client, cargo, pickup_point):
+    """«+996…» и «996…» — один номер: второй раз это вход, не дубль."""
+    def reg(phone, full_name):
+        SMSCode.objects.all().update(created_at=timezone.now() - timedelta(seconds=61))
+        api_client.post(
+            "/api/auth/send-code/",
+            {"phone": phone, "cargo_id": cargo.id, "purpose": "register"},
+            format="json",
+        )
+        sms = SMSCode.objects.filter(is_used=False).latest("created_at")
+        return api_client.post(
+            "/api/auth/verify-code/",
+            {
+                "phone": phone,
+                "code": sms.code,
+                "cargo_id": cargo.id,
+                "pickup_point_id": pickup_point.id,
+                "full_name": full_name,
+            },
+            format="json",
+        )
+
+    r1 = reg("+996700112233", "Формат плюс")
+    assert r1.status_code == 200, r1.data
+    r2 = reg("996700112233", "Формат без плюса")
+    assert r2.status_code == 200, r2.data
+    assert r2.data["is_new_user"] is False
+    assert get_user_model().objects.filter(phone="+996700112233").count() == 1
