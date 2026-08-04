@@ -23,6 +23,8 @@ import {
   formError,
   Input,
   PageHeader,
+  Segmented,
+  type SegmentedOption,
   Select,
   Stat,
   StatGrid,
@@ -67,7 +69,7 @@ export default function WarehousePage() {
   const [debounced, setDebounced] = useState('');
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState(false);
-  const [showArchive, setShowArchive] = useState(false);
+  const [scope, setScope] = useState<'active' | 'archive' | 'all'>('active');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -84,8 +86,12 @@ export default function WarehousePage() {
     if (status) params.set('status', status);
     if (pending) params.set('pending', 'true');
     if (effectivePickup) params.set('pickup_point', String(effectivePickup));
-    // По умолчанию склад показывает активные посылки; архив (выданные) — по флагу.
-    if (!showArchive) params.set('archived', 'false');
+    // Архив: при выбранном конкретном статусе показываем все с этим статусом
+    // (в т.ч. выданные/архив), иначе — по сегменту Активные/Архив/Все.
+    if (!status) {
+      if (scope === 'active') params.set('archived', 'false');
+      else if (scope === 'archive') params.set('archived', 'true');
+    }
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
     const qs = params.toString();
@@ -96,7 +102,7 @@ export default function WarehousePage() {
         setList(null);
       })
       .finally(() => setLoading(false));
-  }, [debounced, status, pending, effectivePickup, showArchive, dateFrom, dateTo]);
+  }, [debounced, status, pending, effectivePickup, scope, dateFrom, dateTo]);
 
   const summary = useMemo(() => {
     const rows = list ?? [];
@@ -108,13 +114,13 @@ export default function WarehousePage() {
     };
   }, [list]);
 
-  const hasFilters = Boolean(debounced || status || pending || showArchive || dateFrom || dateTo);
+  const hasFilters = Boolean(debounced || status || pending || scope !== 'active' || dateFrom || dateTo);
 
   function reset() {
     setSearch('');
     setStatus('');
     setPending(false);
-    setShowArchive(false);
+    setScope('active');
     setDateFrom('');
     setDateTo('');
   }
@@ -298,11 +304,18 @@ export default function WarehousePage() {
             </Field>
           </div>
           <div className="cluster mt-md">
+            <Segmented
+              options={[
+                { value: 'active', label: t('wh.scopeActive') },
+                { value: 'archive', label: t('wh.scopeArchive') },
+                { value: 'all', label: t('wh.scopeAll') },
+              ] as SegmentedOption<'active' | 'archive' | 'all'>[]}
+              value={scope}
+              onChange={setScope}
+              ariaLabel={t('wh.scopeActive')}
+            />
             <Checkbox checked={pending} onChange={setPending}>
               {t('wh.onlyPending')}
-            </Checkbox>
-            <Checkbox checked={showArchive} onChange={setShowArchive}>
-              {t('wh.showArchive')}
             </Checkbox>
             <span className="grow" />
             {hasFilters && (

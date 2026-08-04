@@ -4,6 +4,7 @@ import { statusMeta, type Tone } from '../status';
 import { useI18n } from '../i18n';
 import { useBarcodeScanner } from '../useBarcodeScanner';
 import { IconScan, IconCheck, IconGlobe, IconClose } from '../components/Icons';
+import OperationHistory from '../components/OperationHistory';
 import {
   Alert,
   Badge,
@@ -17,6 +18,8 @@ import {
   Field,
   Input,
   PageHeader,
+  Segmented,
+  type SegmentedOption,
 } from '../ui';
 
 // Со склада в Китае приёмка всегда в одном статусе.
@@ -42,6 +45,7 @@ type Entry = { result: string; parcel: Parcel };
 
 export default function ChinaPage() {
   const { t } = useI18n();
+  const [tab, setTab] = useState<'china' | 'history'>('china');
   const [track, setTrack] = useState('');
   const [clientCode, setClientCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -120,6 +124,22 @@ export default function ChinaPage() {
     <div>
       <PageHeader title={t('china.title')} subtitle={t('china.subtitle')} />
 
+      <div className="mb-lg">
+        <Segmented
+          options={[
+            { value: 'china', label: t('nav.china') },
+            { value: 'history', label: t('hist.tab') },
+          ] as SegmentedOption<'china' | 'history'>[]}
+          value={tab}
+          onChange={setTab}
+          ariaLabel={t('hist.tab')}
+        />
+      </div>
+
+      {tab === 'history' ? (
+        <OperationHistory type="china" reloadSignal={log.length} />
+      ) : (
+      <>
       <Card>
         <CardHeader
           title={t('china.cardTitle')}
@@ -208,6 +228,8 @@ export default function ChinaPage() {
           }
         />
       </Card>
+      </>
+      )}
     </div>
   );
 }

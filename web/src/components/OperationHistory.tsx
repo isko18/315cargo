@@ -23,7 +23,7 @@ import {
 type Op = {
   id: number;
   parcel: number;
-  type: 'receive' | 'issue';
+  type: 'receive' | 'issue' | 'china';
   track_number: string;
   client_code: string | null;
   client_name: string | null;
@@ -51,7 +51,7 @@ export default function OperationHistory({
   type,
   reloadSignal = 0,
 }: {
-  type: 'receive' | 'issue';
+  type: 'receive' | 'issue' | 'china';
   reloadSignal?: number;
 }) {
   const { t } = useI18n();
@@ -229,7 +229,12 @@ export default function OperationHistory({
     },
   ];
 
-  const title = type === 'issue' ? t('hist.issueHistory') : t('hist.receiveHistory');
+  const title =
+    type === 'issue'
+      ? t('hist.issueHistory')
+      : type === 'china'
+        ? t('hist.chinaHistory')
+        : t('hist.receiveHistory');
 
   return (
     <Card>
@@ -296,7 +301,9 @@ export default function OperationHistory({
                 ? t('hist.emptyFiltered')
                 : type === 'issue'
                   ? t('hist.emptyNoneIssue')
-                  : t('hist.emptyNoneReceive')
+                  : type === 'china'
+                    ? t('hist.emptyNoneChina')
+                    : t('hist.emptyNoneReceive')
             }
           />
         }

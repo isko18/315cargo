@@ -60,6 +60,27 @@ def test_history_manager_sees_all_and_filters(cargo_admin_client):
 
 
 @pytest.mark.django_db
+def test_history_china_type_includes_orphan_for_china_operator(api_client, cargo_admin):
+    from rest_framework_simplejwt.tokens import RefreshToken
+    from tests.factories import UserFactory
+
+    cargo = cargo_admin.cargo
+    china_op = UserFactory(cargo=cargo, is_staff=True, is_china_staff=True)
+    # «Ничья» посылка (cargo=None) прибыла на склад в Китае, оператор = china_op.
+    p = Parcel(cargo=None, user=None, track_number="CN-ORPH-1",
+               status=Parcel.Status.ARRIVED_CHINA_WAREHOUSE)
+    p._status_changed_by = china_op
+    p.save()
+
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(china_op).access_token}")
+    r = api_client.get("/api/history/?type=china")
+    assert r.status_code == 200
+    tracks = {row["track_number"] for row in r.data}
+    assert "CN-ORPH-1" in tracks
+    assert all(row["type"] == "china" for row in r.data)
+
+
+@pytest.mark.django_db
 def test_history_cargo_scoped(cargo_admin_client):
     from tests.factories import CargoCompanyFactory, UserFactory
 

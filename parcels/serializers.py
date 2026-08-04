@@ -138,7 +138,11 @@ class OperationHistorySerializer(serializers.ModelSerializer):
         )
 
     def get_type(self, obj):
-        return "issue" if obj.status == Parcel.Status.ISSUED else "receive"
+        if obj.status == Parcel.Status.ISSUED:
+            return "issue"
+        if obj.status in (Parcel.Status.ARRIVED_CHINA_WAREHOUSE, Parcel.Status.SENT_TO_KYRGYZSTAN):
+            return "china"
+        return "receive"
 
     def get_product_title(self, obj):
         order = getattr(obj.parcel, "order", None)

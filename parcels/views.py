@@ -194,13 +194,14 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
 
     RECEIVE = Parcel.Status.AT_PICKUP_POINT
     ISSUE = Parcel.Status.ISSUED
+    CHINA = (Parcel.Status.ARRIVED_CHINA_WAREHOUSE, Parcel.Status.SENT_TO_KYRGYZSTAN)
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return ParcelStatusHistory.objects.none()
         user = self.request.user
         qs = (
-            ParcelStatusHistory.objects.filter(status__in=(self.RECEIVE, self.ISSUE))
+            ParcelStatusHistory.objects.filter(status__in=(self.RECEIVE, self.ISSUE, *self.CHINA))
             .select_related(
                 "parcel",
                 "parcel__user",
@@ -212,25 +213,23 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
             .order_by("-created_at")
         )
 
-        # Скоуп по карго.
-        cargo_id = get_request_cargo_id(user)
-        if cargo_id:
-            qs = qs.filter(parcel__cargo_id=cargo_id)
-        elif not user.is_superuser:
-            return qs.none()
-        else:
-            override = self.request.query_params.get("cargo")
-            if override:
-                qs = qs.filter(parcel__cargo_id=override)
-
-        # Сотрудник (не админ/не супер) видит только свои операции.
         is_manager = user.is_superuser or getattr(user, "is_cargo_admin", False)
-        if not is_manager:
-            qs = qs.filter(changed_by=user)
-        else:
+        if is_manager:
+            # Менеджер: скоуп по карго (+ фильтр по оператору). Супер — все/?cargo=.
+            cargo_id = get_request_cargo_id(user)
+            if cargo_id:
+                qs = qs.filter(parcel__cargo_id=cargo_id)
+            else:
+                override = self.request.query_params.get("cargo")
+                if override:
+                    qs = qs.filter(parcel__cargo_id=override)
             operator = self.request.query_params.get("operator")
             if operator:
                 qs = qs.filter(changed_by_id=operator)
+        else:
+            # Сотрудник (в т.ч. оператор Китая): только свои операции, любой карго —
+            # в Китае посылки часто «ничьи» (cargo=None), их не отсекаем.
+            qs = qs.filter(changed_by=user)
 
         # Тип операции.
         op_type = self.request.query_params.get("type")
@@ -238,6 +237,8 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
             qs = qs.filter(status=self.RECEIVE)
         elif op_type == "issue":
             qs = qs.filter(status=self.ISSUE)
+        elif op_type == "china":
+            qs = qs.filter(status__in=self.CHINA)
 
         # Диапазон дат (по дате операции).
         d_from = self.request.query_params.get("date_from")
