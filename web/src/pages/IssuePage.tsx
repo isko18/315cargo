@@ -7,7 +7,8 @@ import { FINAL, statusMeta } from '../status';
 import { useI18n } from '../i18n';
 import WeightInline from '../components/WeightInline';
 import OperationHistory from '../components/OperationHistory';
-import { IconSearch, IconCamera, IconIssue, IconBox } from '../components/Icons';
+import ClientSearch from '../components/ClientSearch';
+import { IconCamera, IconIssue, IconBox } from '../components/Icons';
 import {
   Alert,
   Badge,
@@ -293,14 +294,10 @@ export default function IssuePage() {
         <CardBody>
           <div className="row">
             <Field label={t('issue.clientCodeLabel')} helper={t('issue.searchHint')} style={{ flex: 3 }}>
-              <Input
-                ref={inputRef}
-                className="scan-input"
-                icon={<IconSearch size={18} />}
-                value={clientCode}
-                onChange={(e) => setClientCode(e.target.value)}
-                placeholder="C1234567"
-                autoComplete="off"
+              <ClientSearch
+                autoFocus
+                placeholder={t('clientsearch.placeholder')}
+                onPick={(c) => setClientCode(c.client_code)}
               />
             </Field>
             <Button variant="secondary" onClick={() => setScanning(true)} disabled={busy} icon={<IconCamera size={18} />}>

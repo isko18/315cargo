@@ -28,6 +28,8 @@ const DICT: Record<Lang, Record<string, string>> = {
     'common.result': 'Результат',
     'common.menu': 'Меню',
     'common.toggleNav': 'Свернуть меню',
+    'clientsearch.placeholder': 'имя, телефон или код клиента…',
+    'clientsearch.none': 'Клиенты не найдены',
 
     'roles.owner': 'Владелец',
     'roles.cargoAdmin': 'Администратор карго',
@@ -556,6 +558,8 @@ const DICT: Record<Lang, Record<string, string>> = {
     'common.result': '结果',
     'common.menu': '菜单',
     'common.toggleNav': '折叠菜单',
+    'clientsearch.placeholder': '客户姓名、电话或代码…',
+    'clientsearch.none': '未找到客户',
 
     'roles.owner': '所有者',
     'roles.cargoAdmin': '货运管理员',

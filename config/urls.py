@@ -36,6 +36,7 @@ from pickup_points.views import ManagedPickupPointViewSet, PickupPointViewSet
 from shops.views import ShopViewSet
 from users.views import (
     AuthViewSet,
+    ClientSearchAPIView,
     ManagedClientViewSet,
     ManagedStaffViewSet,
     ProfileAPIView,
@@ -98,6 +99,7 @@ urlpatterns = [
     ),
     path("api/admin/overview/", AdminOverviewAPIView.as_view(), name="admin-overview"),
     path("api/delivery-address/", DeliveryAddressAPIView.as_view(), name="delivery-address"),
+    path("api/clients/search/", ClientSearchAPIView.as_view(), name="clients-search"),
     path("api/", include(router.urls)),
 ]
 

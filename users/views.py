@@ -14,6 +14,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.audit import log_audit
+from common.cargo_scoping import bound_pickup_id, get_request_cargo_id
 from common.models import AuditLog
 from common.permissions import HasTabAccess, IsCargoManager
 from common.throttling import AuthRateThrottle, SmsRateThrottle
@@ -363,6 +364,43 @@ class ManagedStaffViewSet(ModelViewSet):
     def perform_update(self, serializer):
         self._guard_china(serializer)
         serializer.save()
+
+
+class ClientSearchAPIView(APIView):
+    """Живой поиск клиентов для присвоения/выдачи: по имени, телефону или коду.
+
+    Доступен любому сотруднику карго (операторам тоже — им нужно присваивать и
+    выдавать). Скоуп: своё карго; привязанный к ПВЗ оператор — только свой ПВЗ.
+    Возвращает до 10 записей с минимумом полей.
+    """
+
+    permission_classes = (IsAuthenticated, IsCargoManager)
+
+    def get(self, request):
+        q = (request.query_params.get("q") or "").strip()
+        if not q:
+            return Response([])
+        qs = User.objects.filter(is_staff=False, is_superuser=False).select_related("pickup_point")
+        cargo_id = get_request_cargo_id(request.user)
+        if cargo_id:
+            qs = qs.filter(cargo_id=cargo_id)
+        pickup_id = bound_pickup_id(request.user)
+        if pickup_id:
+            qs = qs.filter(pickup_point_id=pickup_id)
+        qs = qs.filter(
+            Q(full_name__icontains=q) | Q(phone__icontains=q) | Q(client_code__icontains=q)
+        ).order_by("full_name", "id")[:10]
+        data = [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "phone": u.phone,
+                "client_code": u.client_code,
+                "pickup_point_title": u.pickup_point.title if u.pickup_point_id else None,
+            }
+            for u in qs
+        ]
+        return Response(data)
 
 
 @extend_schema_view(list=extend_schema(tags=["manage"]))

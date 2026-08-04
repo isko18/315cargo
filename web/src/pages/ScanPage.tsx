@@ -6,6 +6,7 @@ import { usePickup } from '../pickupContext';
 import { useBarcodeScanner } from '../useBarcodeScanner';
 import WeightInline from '../components/WeightInline';
 import OperationHistory from '../components/OperationHistory';
+import ClientSearch from '../components/ClientSearch';
 import { IconScan, IconCheck, IconBox } from '../components/Icons';
 import {
   Alert,
@@ -267,19 +268,13 @@ export default function ScanPage() {
 }
 
 function AssignInline({ onAssign, t }: { onAssign: (code: string) => void; t: (k: string) => string }) {
-  const [code, setCode] = useState('');
   return (
-    <div className="cluster gap-sm" style={{ flexWrap: 'nowrap' }}>
-      <Input
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && onAssign(code)}
+    <div style={{ minWidth: 210 }}>
+      <ClientSearch
+        size="sm"
         placeholder={t('scan.assignPlaceholder')}
-        style={{ padding: '6px 10px', fontSize: 13, maxWidth: 130 }}
+        onPick={(c) => onAssign(c.client_code)}
       />
-      <Button variant="subtle" size="sm" onClick={() => onAssign(code)}>
-        {t('scan.assign')}
-      </Button>
     </div>
   );
 }

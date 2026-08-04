@@ -341,6 +341,25 @@ button.ghost .spinner, button.subtle .spinner { border-color: var(--border-stron
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 620px) { .grid-2 { grid-template-columns: 1fr; } }
 
+/* ============================ Client live-search ============================ */
+.client-search { position: relative; }
+.cs-menu {
+  z-index: 200; max-height: 320px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--r-md); box-shadow: var(--sh-lg); padding: 4px;
+  animation: pop .12s ease;
+}
+.cs-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; text-align: left; background: transparent; border: 0; box-shadow: none;
+  padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; color: var(--text);
+}
+.cs-item:hover, .cs-item:focus-visible { background: var(--surface-2); box-shadow: none; outline: none; }
+.cs-item .cs-name { font-weight: 600; font-size: 14px; }
+.cs-item .cs-meta { display: flex; gap: 10px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+.cs-item .cs-pp { color: var(--text-faint); }
+.cs-empty { padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
 /* Разбивка посылок по статусам (детали карго). */
 .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; padding: 16px; }
 .status-chip {
