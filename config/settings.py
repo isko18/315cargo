@@ -246,13 +246,14 @@ CELERY_RESULT_BACKEND = REDIS_URL
 # времени посылка остаётся в статусе, прежде чем перейти в следующий (секунды).
 # Celery-задача `parcels.advance_parcels` (beat, каждые 5 мин) двигает посылки
 # по цепочке. Локально без Celery: `manage.py advance_parcels --loop`. После
-# "processing" — ожидание 2-го скана в ПВЗ (at_pickup_point).
+# "arrived_kyrgyzstan" — ожидание 2-го скана в ПВЗ (at_pickup_point).
+# Маршрут: Китай → (10с) обработка → (4д) Топа → (2д) в пути → (2д) Кыргызстан.
+# Ключ = текущий статус, значение = задержка перед переходом к следующему.
 AUTO_STATUS_DELAYS = {
-    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10 * 60)),  # 10 мин → на хранение
-    "in_storage": int(os.getenv("AUTO_DELAY_IN_STORAGE", 2 * 86400)),               # 2 дня → отправлен
-    "sent_to_kyrgyzstan": int(os.getenv("AUTO_DELAY_SENT", 4 * 86400)),             # 4 дня → в пути
-    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 86400)),                   # 1 день → прибыл в КР
-    "arrived_kyrgyzstan": int(os.getenv("AUTO_DELAY_ARRIVED_KG", 2 * 3600)),        # 2 часа → обработка
+    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10)),  # 10 сек → обработка
+    "processing": int(os.getenv("AUTO_DELAY_PROCESSING", 4 * 86400)),           # 4 дня → Топа
+    "arrived_topa": int(os.getenv("AUTO_DELAY_TOPA", 2 * 86400)),               # 2 дня → в пути
+    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 2 * 86400)),           # 2 дня → Кыргызстан
 }
 
 LOGGING = {

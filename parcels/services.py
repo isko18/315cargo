@@ -21,6 +21,9 @@ class ScanError(Exception):
 
 
 # Порядок статусов по маршруту (для защиты от отката при повторных сканах).
+# Маршрут: Китай → обработка → Топа → в пути → Кыргызстан → ПВЗ.
+# in_storage / sent_to_kyrgyzstan — устаревшие (не в авто-цепочке), оставлены
+# для старых посылок и совместимости.
 _STATUS_ORDER = [
     Parcel.Status.CREATED,
     Parcel.Status.PURCHASED,
@@ -28,9 +31,10 @@ _STATUS_ORDER = [
     Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
     Parcel.Status.IN_STORAGE,
     Parcel.Status.SENT_TO_KYRGYZSTAN,
+    Parcel.Status.PROCESSING,
+    Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.IN_TRANSIT,
     Parcel.Status.ARRIVED_KYRGYZSTAN,
-    Parcel.Status.PROCESSING,
     Parcel.Status.AT_PICKUP_POINT,
     Parcel.Status.CITY_DELIVERY,
     Parcel.Status.DELIVERED,
@@ -260,15 +264,15 @@ def update_parcel_status(parcel, status, comment=None, changed_by=None):
     return parcel
 
 
-# Порядок авто-цепочки после 1-го скана. Последний статус — «ожидание 2-го
-# скана в ПВЗ» (дальше at_pickup_point ставится вручную сканом в ПВЗ).
+# Порядок авто-цепочки после 1-го скана (скан на складе в Китае).
+# Китай → обработка → Топа → в пути → Кыргызстан. Последний статус —
+# «ожидание 2-го скана в ПВЗ» (дальше at_pickup_point ставится вручную).
 AUTO_FLOW = [
     Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
-    Parcel.Status.IN_STORAGE,
-    Parcel.Status.SENT_TO_KYRGYZSTAN,
+    Parcel.Status.PROCESSING,
+    Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.IN_TRANSIT,
     Parcel.Status.ARRIVED_KYRGYZSTAN,
-    Parcel.Status.PROCESSING,
 ]
 
 
@@ -298,7 +302,7 @@ def advance_parcel_auto(parcel, now=None):
         return False
     idx = AUTO_FLOW.index(parcel.status)
     if idx >= len(AUTO_FLOW) - 1:
-        return False  # PROCESSING — ждём скан в ПВЗ
+        return False  # ARRIVED_KYRGYZSTAN — ждём скан в ПВЗ
 
     delays = settings.AUTO_STATUS_DELAYS
     anchor = _auto_anchor(parcel)

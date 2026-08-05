@@ -27,34 +27,34 @@ def test_auto_flow_catches_up_to_processing():
     assert advance_parcel_auto(parcel) is True
     parcel.refresh_from_db()
     # Прошло много времени → дошёл до последнего авто-статуса (ждёт скан в ПВЗ).
-    assert parcel.status == Parcel.Status.PROCESSING
+    assert parcel.status == Parcel.Status.ARRIVED_KYRGYZSTAN
     # По каждому промежуточному шагу есть запись в истории (трекинг).
     statuses = set(
         ParcelStatusHistory.objects.filter(parcel=parcel).values_list("status", flat=True)
     )
     assert {
-        Parcel.Status.IN_STORAGE,
-        Parcel.Status.SENT_TO_KYRGYZSTAN,
+        Parcel.Status.PROCESSING,
+        Parcel.Status.ARRIVED_TOPA,
         Parcel.Status.IN_TRANSIT,
         Parcel.Status.ARRIVED_KYRGYZSTAN,
-        Parcel.Status.PROCESSING,
     } <= statuses
 
 
 @pytest.mark.django_db
 def test_auto_flow_partial_advance():
     parcel = ParcelFactory(status=Parcel.Status.CREATED)
-    # Прошло 15 минут — только первый порог (10 мин) пройден.
-    _anchor_china(parcel, timezone.now() - timedelta(minutes=15))
+    # Прошёл 1 час — только первый порог (10 сек, Китай→обработка) пройден,
+    # следующий (обработка→Топа, 4 дня) — ещё нет.
+    _anchor_china(parcel, timezone.now() - timedelta(hours=1))
 
     assert advance_parcel_auto(parcel) is True
     parcel.refresh_from_db()
-    assert parcel.status == Parcel.Status.IN_STORAGE
+    assert parcel.status == Parcel.Status.PROCESSING
 
 
 @pytest.mark.django_db
 def test_auto_flow_stops_and_waits_for_pickup_scan():
-    parcel = ParcelFactory(status=Parcel.Status.PROCESSING)
+    parcel = ParcelFactory(status=Parcel.Status.ARRIVED_KYRGYZSTAN)
     # На последнем авто-статусе движок не двигает — ждёт ручной скан в ПВЗ.
     assert advance_parcel_auto(parcel) is False
 
@@ -91,4 +91,4 @@ def test_advance_command_runs():
     _anchor_china(parcel, timezone.now() - timedelta(days=30))
     call_command("advance_parcels")
     parcel.refresh_from_db()
-    assert parcel.status == Parcel.Status.PROCESSING
+    assert parcel.status == Parcel.Status.ARRIVED_KYRGYZSTAN

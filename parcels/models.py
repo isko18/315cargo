@@ -14,6 +14,7 @@ class Parcel(models.Model):
         IN_TRANSIT = "in_transit", _("В пути")
         ARRIVED_KYRGYZSTAN = "arrived_kyrgyzstan", _("Прибыл в Кыргызстан")
         PROCESSING = "processing", _("Классификация и обработка")
+        ARRIVED_TOPA = "arrived_topa", _("Прибыл в Топа")
         AT_PICKUP_POINT = "at_pickup_point", _("Прибыл в пункт выдачи")
         CITY_DELIVERY = "city_delivery", _("Передан на доставку по городу")
         DELIVERED = "delivered", _("Доставлен")
