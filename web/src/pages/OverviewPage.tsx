@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError, get, patch, post } from '../api';
 import { IconOverview, IconBox, IconStaff, IconTruck, IconAlert, IconPlus, IconCheck } from '../components/Icons';
 import { useI18n } from '../i18n';
+import InviteLink from '../components/InviteLink';
 import type { Tone } from '../status';
 import {
   Alert,
@@ -94,6 +95,8 @@ export default function OverviewPage() {
   const [modalErr, setModalErr] = useState('');
   const [banner, setBanner] = useState('');
 
+  // Ссылка-приглашение редактируемого карго (приходит с бэкенда вместе с QR).
+  const [invite, setInvite] = useState<{ url: string; qr: string } | null>(null);
   // Сброс пароля владельца (в режиме редактирования).
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
   const [ownerId, setOwnerId] = useState('');
@@ -129,6 +132,7 @@ export default function OverviewPage() {
     setForm({ ...EMPTY });
     setModalErr('');
     setBanner('');
+    setInvite(null);
     setOpen(true);
   }
 
@@ -136,6 +140,7 @@ export default function OverviewPage() {
     setEditId(row.id);
     setModalErr('');
     setBanner('');
+    setInvite(null);
     setAdmins([]);
     setOwnerId('');
     setNewPwd('');
@@ -158,6 +163,7 @@ export default function OverviewPage() {
         price_per_kg_kgs: String(c.price_per_kg_kgs ?? ''),
         is_active: Boolean(c.is_active),
       });
+      setInvite(c.invite_url ? { url: c.invite_url, qr: c.invite_qr } : null);
       setAdmins(adm);
       if (adm.length) setOwnerId(String(adm[0].id));
     } catch (e) {
@@ -452,6 +458,13 @@ export default function OverviewPage() {
                     {t('ov.activeField')}
                   </Checkbox>
                 </div>
+
+                {invite && (
+                  <>
+                    <div className="section-title" style={{ margin: '22px 0 12px' }}>{t('invite.card')}</div>
+                    <InviteLink url={invite.url} qr={invite.qr} />
+                  </>
+                )}
 
                 <div className="section-title" style={{ margin: '22px 0 12px' }}>{t('ov.resetPwd')}</div>
                 {admins.length === 0 ? (

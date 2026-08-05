@@ -1,0 +1,95 @@
+{% load static %}<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ cargo.title }} — 315CARGO</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --bg: #f4f5f7; --surface: #fff; --text: #0f172a; --muted: #64748b;
+      --brand: #e11d2e; --border: #e2e8f0; --radius: 16px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0f172a; --surface: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --border: #334155; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    .card {
+      width: 100%; max-width: 400px; background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 28px 24px; text-align: center;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .08);
+    }
+    .logo { width: 76px; height: 76px; border-radius: 20px; object-fit: cover; margin-bottom: 14px; }
+    .logo-fallback {
+      width: 76px; height: 76px; border-radius: 20px; margin: 0 auto 14px; display: grid;
+      place-items: center; background: var(--brand); color: #fff; font-size: 30px; font-weight: 700;
+    }
+    h1 { margin: 0 0 4px; font-size: 21px; }
+    .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+    .code-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 26px; font-weight: 700;
+      letter-spacing: 2px; margin: 4px 0 6px; word-break: break-all;
+    }
+    .code-hint { color: var(--muted); font-size: 12.5px; margin: 0 0 20px; }
+    .btn {
+      display: block; width: 100%; padding: 14px; border-radius: 12px; text-decoration: none;
+      font-size: 15px; font-weight: 600; margin-bottom: 10px; border: 1px solid transparent;
+    }
+    .btn-primary { background: var(--brand); color: #fff; }
+    .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+    .divider { color: var(--muted); font-size: 12.5px; margin: 18px 0 12px; }
+    .contacts { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .contacts a { color: inherit; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    {% if cargo.logo %}
+      <img class="logo" src="{{ cargo.logo.url }}" alt="{{ cargo.title }}">
+    {% else %}
+      <div class="logo-fallback">{{ cargo.title|slice:":1"|upper }}</div>
+    {% endif %}
+
+    <h1>{{ cargo.title }}</h1>
+    <p class="sub">Приглашение в 315CARGO</p>
+
+    <div class="code-label">Код карго</div>
+    <div class="code">{{ cargo_code }}</div>
+    <p class="code-hint">Если приложение не открылось само — введите этот код при первом запуске.</p>
+
+    <a class="btn btn-primary" href="{{ app_link }}">Открыть в приложении</a>
+
+    <div class="divider">Приложение ещё не установлено?</div>
+
+    <a class="btn btn-secondary" href="{{ play_url }}">Скачать для Android</a>
+    {% if app_store_url %}
+      <a class="btn btn-secondary" href="{{ app_store_url }}">Скачать для iPhone</a>
+    {% endif %}
+
+    {% if cargo.phone or cargo.address %}
+      <div class="contacts">
+        {% if cargo.phone %}<div><a href="tel:{{ cargo.phone }}">{{ cargo.phone }}</a></div>{% endif %}
+        {% if cargo.address %}<div>{{ cargo.address }}</div>{% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  {{ app_link|json_script:"app-link" }}
+  <script>
+    // Если приложение установлено, оно перехватит переход по своей схеме.
+    // Задержка — чтобы страница успела отрисоваться, когда приложения нет.
+    (function () {
+      var el = document.getElementById('app-link');
+      if (!el) return;
+      var url = JSON.parse(el.textContent);
+      setTimeout(function () { window.location = url; }, 800);
+    })();
+  </script>
+</body>
+</html>

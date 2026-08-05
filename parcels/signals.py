@@ -6,6 +6,35 @@ from notifications.services import notify
 
 from .models import Parcel, ParcelStatusHistory
 
+# Тексты пушей по статусам: клиент видит понятную фразу, а не «Статус обновлён».
+# Ключ — статус, значение — (заголовок, тело без трек-номера).
+STATUS_MESSAGES = {
+    Parcel.Status.ARRIVED_CHINA_WAREHOUSE: (
+        "Посылка на складе в Китае",
+        "принята на складе и готовится к отправке",
+    ),
+    Parcel.Status.PROCESSING: (
+        "Посылка на обработке",
+        "проходит классификацию и обработку на складе",
+    ),
+    Parcel.Status.ARRIVED_TOPA: (
+        "Посылка прибыла в Топа",
+        "прибыла на перевалочный склад",
+    ),
+    Parcel.Status.IN_TRANSIT: (
+        "Посылка в пути",
+        "выехала в Кыргызстан",
+    ),
+    Parcel.Status.ARRIVED_KYRGYZSTAN: (
+        "Посылка прибыла в Кыргызстан",
+        "скоро будет в вашем пункте выдачи",
+    ),
+    Parcel.Status.ISSUED: (
+        "Посылка выдана",
+        "выдана — спасибо, что выбрали нас",
+    ),
+}
+
 
 @receiver(pre_save, sender=Parcel)
 def remember_old_status(sender, instance, **kwargs):
@@ -52,6 +81,7 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
         "parcel_id": instance.id,
         "track_number": instance.track_number,
         "status": instance.status,
+        "status_display_name": display_name,
     }
 
     if instance.status == Parcel.Status.AT_PICKUP_POINT:
@@ -62,11 +92,15 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
             type=NotificationType.PARCEL_AT_PICKUP_POINT,
             data=data,
         )
-    else:
-        notify(
-            instance.user,
-            title="Статус посылки обновлён",
-            body=f"Посылка {instance.track_number}: {display_name}",
-            type=NotificationType.PARCEL_STATUS_CHANGED,
-            data=data,
-        )
+        return
+
+    title, phrase = STATUS_MESSAGES.get(
+        instance.status, ("Статус посылки обновлён", display_name.lower())
+    )
+    notify(
+        instance.user,
+        title=title,
+        body=f"Посылка {instance.track_number} {phrase}",
+        type=NotificationType.PARCEL_STATUS_CHANGED,
+        data=data,
+    )

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Карго не найдено — 315CARGO</title>
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --bg: #f4f5f7; --surface: #fff; --text: #0f172a; --muted: #64748b;
+      --brand: #e11d2e; --border: #e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0f172a; --surface: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --border: #334155; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    .card {
+      width: 100%; max-width: 400px; background: var(--surface); border-radius: 16px;
+      border: 1px solid var(--border); padding: 28px 24px; text-align: center;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .08);
+    }
+    h1 { margin: 0 0 10px; font-size: 20px; }
+    p { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 18px; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    .btn {
+      display: block; padding: 13px; border-radius: 12px; background: var(--brand);
+      color: #fff; text-decoration: none; font-weight: 600; font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Такого карго нет</h1>
+    <p>
+      Ссылка ведёт на карго <span class="code">{{ slug }}</span>, но оно не найдено
+      или больше не работает. Проверьте ссылку у своего карго — возможно, она устарела.
+    </p>
+    <a class="btn" href="{{ site_url }}">На главную</a>
+  </div>
+</body>
+</html>

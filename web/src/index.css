@@ -381,6 +381,26 @@ button.ghost .spinner, button.subtle .spinner { border-color: var(--border-stron
 }
 .daddr-preview svg { flex: none; color: var(--brand); margin-top: 2px; }
 
+/* Ссылка-приглашение карго: QR + сама ссылка с кнопками. */
+.invite { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.invite-qr {
+  flex: none; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: #fff; padding: 6px;
+}
+.invite-body { flex: 1; min-width: 240px; }
+.invite-url {
+  display: block; padding: 10px 12px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px dashed var(--border-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13.5px; word-break: break-all; user-select: all;
+}
+.invite-dl {
+  display: inline-flex; align-items: center; padding: 7px 13px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  font-size: 13.5px; font-weight: 600; text-decoration: none;
+}
+.invite-dl:hover { background: var(--slate-100); }
+
 /* Предпросмотр клиентских кодов: следующий код и пара следующих за ним. */
 .ccode-preview {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;

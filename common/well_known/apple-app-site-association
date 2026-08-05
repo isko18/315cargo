@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["Y37HNJ3WU3.com.cargo315.app"],
+        "components": [
+          { "/": "/j/*", "comment": "cargo invite links" }
+        ]
+      }
+    ]
+  }
+}

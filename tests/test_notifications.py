@@ -6,7 +6,7 @@ from notifications.models import (
     NotificationPreference,
     NotificationType,
 )
-from notifications.services import notify
+from notifications.services import notify, send_push_notification
 from orders.models import Order
 from parcels.models import Parcel
 from tests.factories import OrderFactory, ParcelFactory
@@ -33,6 +33,53 @@ def test_parcel_status_change_creates_history_and_notification(user):
     assert Notification.objects.filter(
         user=user, type=NotificationType.PARCEL_AT_PICKUP_POINT
     ).exists()
+
+
+@pytest.mark.django_db
+def test_push_payload_carries_type_and_ids(monkeypatch, user):
+    """Мобилка роутит tap по data['type'] — сервер обязан его класть."""
+    DeviceToken.objects.create(
+        user=user, token="tok-1", platform=DeviceToken.Platform.ANDROID
+    )
+    captured = {}
+
+    class FakeMessaging:
+        @staticmethod
+        def Notification(title, body):  # noqa: N802 — мок firebase_admin API
+            return (title, body)
+
+        @staticmethod
+        def MulticastMessage(tokens, notification, data):  # noqa: N802
+            captured.update(data)
+            return object()
+
+        @staticmethod
+        def send_each_for_multicast(message):
+            class _Resp:
+                responses = []
+                success_count = 1
+                failure_count = 0
+
+            return _Resp()
+
+    monkeypatch.setattr(
+        "notifications.services._ensure_firebase_initialized", lambda: True
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules, "firebase_admin", type("M", (), {"messaging": FakeMessaging})
+    )
+
+    send_push_notification(
+        user,
+        "Посылка в пути",
+        "Посылка TRACK1 выехала в Кыргызстан",
+        data={"parcel_id": 7, "status": "in_transit"},
+        type=NotificationType.PARCEL_STATUS_CHANGED,
+    )
+
+    assert captured["type"] == NotificationType.PARCEL_STATUS_CHANGED
+    assert captured["parcel_id"] == "7"  # FCM принимает только строки
+    assert captured["status"] == "in_transit"
 
 
 @pytest.mark.django_db

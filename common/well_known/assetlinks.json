@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.cargo315.app",
+      "sha256_cert_fingerprints": [
+        "27:67:66:6C:4B:FB:53:18:A3:81:6D:C4:42:90:06:45:EA:EA:67:50:5D:9E:83:BD:7C:EF:4B:D7:BC:C2:19:ED",
+        "44:1C:3D:73:27:5D:C3:56:24:51:10:7C:26:4A:0D:E2:C2:91:15:50:4C:E7:77:E3:69:11:8F:DF:62:0F:C0:12"
+      ]
+    }
+  }
+]

@@ -1,3 +1,5 @@
+import base64
+import io
 import re
 
 from rest_framework import serializers
@@ -5,6 +7,21 @@ from rest_framework import serializers
 from pickup_points.models import PickupPoint
 
 from .models import DEFAULT_CLIENT_CODE_PREFIX, CargoCompany
+
+
+def invite_qr_data_uri(url: str) -> str:
+    """QR ссылки-приглашения как data-URI.
+
+    Отдаём картинку прямо в JSON: панель ходит с JWT в заголовке, а <img src>
+    заголовки не шлёт — отдельный эндпоинт с картинкой пришлось бы открывать.
+    """
+    import qrcode
+
+    image = qrcode.make(url)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 CARGO_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
 # Префикс кода клиента: латиница/кириллица и цифры, 1–6 символов («X», «КК», «KG1»).
@@ -99,6 +116,8 @@ class MyCargoSerializer(serializers.ModelSerializer):
         max_digits=8, decimal_places=2, min_value=0
     )
     client_code_next = serializers.CharField(source="next_client_code", read_only=True)
+    invite_url = serializers.SerializerMethodField()
+    invite_qr = serializers.SerializerMethodField()
 
     class Meta:
         model = CargoCompany
@@ -115,6 +134,8 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "client_code_prefix",
             "client_code_seq",
             "client_code_next",
+            "invite_url",
+            "invite_qr",
             "is_active",
             "created_at",
             "updated_at",
@@ -133,6 +154,14 @@ class MyCargoSerializer(serializers.ModelSerializer):
 
     def validate_client_code_prefix(self, value):
         return normalize_client_code_prefix(value, instance=self.instance)
+
+    def get_invite_url(self, obj):
+        from common.invites import invite_url_for
+
+        return invite_url_for(obj.slug)
+
+    def get_invite_qr(self, obj):
+        return invite_qr_data_uri(self.get_invite_url(obj))
 
 
 class CargoOverviewItemSerializer(serializers.Serializer):
@@ -159,6 +188,8 @@ class AdminCargoSerializer(serializers.ModelSerializer):
         max_length=32, required=False, allow_blank=True, allow_null=True
     )
     client_code_next = serializers.CharField(source="next_client_code", read_only=True)
+    invite_url = serializers.SerializerMethodField()
+    invite_qr = serializers.SerializerMethodField()
 
     class Meta:
         model = CargoCompany
@@ -173,6 +204,8 @@ class AdminCargoSerializer(serializers.ModelSerializer):
             "client_code_prefix",
             "client_code_seq",
             "client_code_next",
+            "invite_url",
+            "invite_qr",
             "is_active",
             "created_at",
             "updated_at",
@@ -185,6 +218,14 @@ class AdminCargoSerializer(serializers.ModelSerializer):
 
     def validate_client_code_prefix(self, value):
         return normalize_client_code_prefix(value, instance=self.instance)
+
+    def get_invite_url(self, obj):
+        from common.invites import invite_url_for
+
+        return invite_url_for(obj.slug)
+
+    def get_invite_qr(self, obj):
+        return invite_qr_data_uri(self.get_invite_url(obj))
 
 
 class AdminCreateCargoSerializer(serializers.Serializer):

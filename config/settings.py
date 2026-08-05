@@ -107,6 +107,17 @@ CSRF_TRUSTED_ORIGINS = [
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# --- Ссылки-приглашения карго ---------------------------------------------
+# Клиент переходит по https://<база>/j/<slug> → открывается приложение с уже
+# выбранным карго. Домен вынесен в env: он же прописан в .well-known-файлах
+# и в конфиге мобильного приложения — менять их надо синхронно.
+INVITE_LINK_BASE_URL = os.getenv("INVITE_LINK_BASE_URL", "https://315cargo.com").rstrip("/")
+# Своя схема приложения — работает без верификации домена (запасной путь).
+MOBILE_APP_SCHEME = os.getenv("MOBILE_APP_SCHEME", "cargo315")
+ANDROID_PACKAGE_NAME = os.getenv("ANDROID_PACKAGE_NAME", "com.cargo315.app")
+# Пусто → кнопка магазина не показывается (iOS-приложение ещё не опубликовано).
+APP_STORE_URL = os.getenv("APP_STORE_URL", "")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS: React-панель (по умолчанию dev-порт Vite). Прод-origin добавь через env.

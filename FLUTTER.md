@@ -2,6 +2,18 @@
 
 Полное руководство по разработке мобильного приложения на Flutter для backend 315CARGO (Django REST Framework + JWT).
 
+**Актуально на 2026-08-06.** Краткий список того, что поменялось в API за последние
+релизы (с примерами и чеклистом для мобилки) — в [MOBILE_UPDATES.md](MOBILE_UPDATES.md).
+Ломающие изменения этой версии:
+
+| Что | Было | Стало |
+|---|---|---|
+| Валюта | доллар | **сом (KGS)** во всех суммах, включая `delivery_price` |
+| Тариф карго | `price_per_kg_usd` | **`price_per_kg_kgs`** |
+| Код клиента | `C` + 7 случайных цифр | **префикс карго + 4 цифры** (`X0001`), формат задаёт карго |
+| Статусы посылки | 11 значений | **+4**: `in_storage`, `in_transit`, `processing`, `arrived_topa` |
+| Адрес для PDD | не было | `GET /api/delivery-address/` — новый раздел в справочнике API |
+
 ---
 
 ## Содержание
@@ -34,6 +46,7 @@
 - SMS-регистрации и входа (мультитенантность по карго-центрам)
 - Профиля клиента с персональным кодом и QR
 - Отслеживания заказов и посылок
+- Адреса склада в Китае для заказов на маркетплейсах (готовая строка для 智能填写)
 - Доставки по городу
 - Каталога китайских маркетплейсов
 - In-app и push-уведомлений
@@ -265,7 +278,18 @@ Presentation (UI) → Domain (use cases) → Data (repositories → API)
 
 ### Мультитенантность
 
-Один номер телефона может быть зарегистрирован в **разных карго-центрах** — это отдельные аккаунты. Поле `cargo_id` обязательно во всех auth-запросах.
+Платформа обслуживает несколько карго-центров, поэтому `cargo_id` обязателен во всех
+auth-запросах: SMS-код привязан к карго, для которого он выпущен.
+
+> ⚠️ **Изменено:** раньше один номер мог завести отдельные аккаунты в разных карго.
+> Сейчас **клиентский аккаунт — один на номер телефона глобально**. Если клиент с этим
+> номером уже существует (в любом карго), `verify-code` выполняет **вход в него**,
+> а не создаёт дубль, — при этом карго аккаунта не меняется. Признак в ответе:
+> `is_new_user: false`.
+
+Номер нормализуется на сервере к виду `+<цифры>`: `+996 700 00-00-00`, `996700000000`
+и `+996700000000` — один и тот же номер. Отправлять можно в любом формате, но хранить
+и сравнивать на клиенте — то, что вернул сервер.
 
 ### Flow регистрации
 
@@ -317,10 +341,12 @@ GET /api/cargo-companies/
     "id": 1,
     "title": "315CARGO Бишкек",
     "slug": "315cargo-bishkek",
+    "code": "x69610",
     "description": "...",
     "logo": "https://api.example.com/media/cargo_logos/logo.png",
     "phone": "+996...",
     "address": "...",
+    "price_per_kg_kgs": "306.25",
     "pickup_points": [
       {
         "id": 1,
@@ -333,6 +359,11 @@ GET /api/cargo-companies/
   }
 ]
 ```
+
+Поля карго:
+
+- `code` — **код карго** на складе в Китае (напр. `x69610`), может быть `null`. Клиент указывает его в адресе доставки перед своим кодом (см. «Адрес доставки в Китае»).
+- `price_per_kg_kgs` — тариф приёмки, **сом за кг** (раньше поле называлось `price_per_kg_usd` и было в долларах).
 
 ### Шаг 2. Отправка SMS
 
@@ -417,8 +448,8 @@ POST /api/auth/verify-code/
     "full_name": "Иван Иванов",
     "pickup_point": 1,
     "pickup_point_title": "ПВЗ Центральный",
-    "client_code": "C1234567",
-    "qr_code_image": "https://api.example.com/media/qr_codes/C1234567.png",
+    "client_code": "X0001",
+    "qr_code_image": "https://api.example.com/media/qr_codes/X0001.png",
     "is_cargo_admin": false,
     "created_at": "2026-01-01T12:00:00+06:00",
     "updated_at": "2026-01-01T12:00:00+06:00"
@@ -591,6 +622,10 @@ class User {
 }
 ```
 
+> `clientCode` — строка **произвольного формата**: карго сам задаёт префикс, номер
+> четырёхзначный (`X0001`, `КК0002`), а у старых клиентов остались коды вида `C1234567`.
+> Не парсите его и не проверяйте длину/регулярку — показывайте как есть.
+
 ### AuthResponse
 
 ```dart
@@ -648,13 +683,18 @@ enum ParcelStatus {
   purchased,
   waitingChinaWarehouse,
   arrivedChinaWarehouse,
-  sentToKyrgyzstan,
+  inStorage,            // legacy, вне авто-цепочки
+  sentToKyrgyzstan,     // legacy, вне авто-цепочки
+  processing,
+  arrivedTopa,
+  inTransit,
   arrivedKyrgyzstan,
   atPickupPoint,
   cityDelivery,
   delivered,
   issued,
   cancelled,
+  unknown,              // страховка от новых статусов на бэкенде
 }
 
 @JsonSerializable()
@@ -669,7 +709,7 @@ class Parcel {
   final String location;
   final double? weight;
   final double? volume;
-  final double? deliveryPrice;
+  final double? deliveryPrice;   // в сомах (KGS), раньше было в долларах
   final DateTime? arrivedAt;
   final DateTime? issuedAt;
   final DateTime createdAt;
@@ -713,12 +753,28 @@ Backend отдаёт snake_case строки. Пример маппинга:
 ```dart
 ParcelStatus parseParcelStatus(String value) => switch (value) {
       'created' => ParcelStatus.created,
-      'at_pickup_point' => ParcelStatus.atPickupPoint,
+      'purchased' => ParcelStatus.purchased,
+      'waiting_china_warehouse' => ParcelStatus.waitingChinaWarehouse,
+      'arrived_china_warehouse' => ParcelStatus.arrivedChinaWarehouse,
+      'in_storage' => ParcelStatus.inStorage,
       'sent_to_kyrgyzstan' => ParcelStatus.sentToKyrgyzstan,
-      // ...
-      _ => throw ArgumentError('Unknown status: $value'),
+      'processing' => ParcelStatus.processing,
+      'arrived_topa' => ParcelStatus.arrivedTopa,
+      'in_transit' => ParcelStatus.inTransit,
+      'arrived_kyrgyzstan' => ParcelStatus.arrivedKyrgyzstan,
+      'at_pickup_point' => ParcelStatus.atPickupPoint,
+      'city_delivery' => ParcelStatus.cityDelivery,
+      'delivered' => ParcelStatus.delivered,
+      'issued' => ParcelStatus.issued,
+      'cancelled' => ParcelStatus.cancelled,
+      _ => ParcelStatus.unknown,
     };
 ```
+
+> ⚠️ **Не бросайте исключение на неизвестном статусе.** Статусы добавляются на бэкенде
+> (в этом релизе их прибавилось четыре), и приложение со старым enum падало на парсинге
+> списка посылок. Возвращайте `unknown`, а в UI показывайте `status_display_name` —
+> сервер всегда присылает готовую подпись на русском.
 
 ---
 
@@ -747,8 +803,8 @@ ParcelStatus parseParcelStatus(String value) => switch (value) {
 
 ```json
 {
-  "client_code": "C1234567",
-  "qr_code_image": "https://api.example.com/media/qr_codes/C1234567.png"
+  "client_code": "X0001",
+  "qr_code_image": "https://api.example.com/media/qr_codes/X0001.png"
 }
 ```
 
@@ -790,7 +846,7 @@ ParcelStatus parseParcelStatus(String value) => switch (value) {
     "title": "Pinduoduo",
     "slug": "pinduoduo",
     "icon": "https://api.example.com/media/shop_icons/pdd.png",
-    "open_url": "https://mobile.yangkeduo.com/?client_code=C1234567",
+    "open_url": "https://mobile.yangkeduo.com/?client_code=X0001",
     "open_type": "webview",
     "client_code": null,
     "instruction": null
@@ -875,23 +931,34 @@ ParcelStatus parseParcelStatus(String value) => switch (value) {
 
 ```
 created → purchased → waiting_china_warehouse → arrived_china_warehouse
-  → sent_to_kyrgyzstan → arrived_kyrgyzstan → at_pickup_point
-  → [city_delivery] → delivered → issued
+  → processing → arrived_topa → in_transit → arrived_kyrgyzstan
+  → at_pickup_point → [city_delivery] → delivered → issued
 ```
 
-| Значение | Отображение |
-|---|---|
-| `created` | Оформлен |
-| `purchased` | Выкуплен |
-| `waiting_china_warehouse` | Ожидается на складе в Китае |
-| `arrived_china_warehouse` | Прибыл на склад в Китае |
-| `sent_to_kyrgyzstan` | Отправлен в Кыргызстан |
-| `arrived_kyrgyzstan` | Прибыл в Кырgyzstan |
-| `at_pickup_point` | В ПВЗ |
-| `city_delivery` | Передан на доставку по городу |
-| `delivered` | Доставлен |
-| `issued` | Выдан клиенту |
-| `cancelled` | Отменён |
+От «Прибыл на склад в Китае» до «Прибыл в Кыргызстан» статусы двигает **планировщик
+на сервере по времени** — приложению ничего делать не нужно, достаточно перечитывать
+список. Дальше статус меняет только оператор при сканировании в ПВЗ.
+
+| Значение | Отображение | Примечание |
+|---|---|---|
+| `created` | Оформлен | |
+| `purchased` | Выкуплен | |
+| `waiting_china_warehouse` | Ожидается на складе в Китае | |
+| `arrived_china_warehouse` | Прибыл на склад в Китае | старт авто-цепочки |
+| `in_storage` | На хранении | legacy, вне авто-цепочки |
+| `sent_to_kyrgyzstan` | Отправлен в Кыргызстан | legacy, вне авто-цепочки |
+| `processing` | Классификация и обработка | авто |
+| `arrived_topa` | Прибыл в Топа | авто, **новый** |
+| `in_transit` | В пути | авто |
+| `arrived_kyrgyzstan` | Прибыл в Кыргызстан | авто, последний автоматический |
+| `at_pickup_point` | В ПВЗ | скан оператора |
+| `city_delivery` | Передан на доставку по городу | |
+| `delivered` | Доставлен | |
+| `issued` | Выдан клиенту | посылка уходит в архив |
+| `cancelled` | Отменён | |
+
+`in_storage` и `sent_to_kyrgyzstan` остались у старых посылок — обрабатывать их надо,
+но новые в этих статусах не появляются.
 
 **История статуса:**
 
@@ -907,6 +974,81 @@ created → purchased → waiting_china_warehouse → arrived_china_warehouse
     "created_at": "2026-01-15T10:00:00+06:00"
   }
 ]
+```
+
+---
+
+### Адрес доставки в Китае (для заказов на маркетплейсах)
+
+Единый адрес склада в Китае, который клиент вставляет в заказ на PDD/Taobao. Заполняет
+супер-владелец в панели, клиент только **читает**. Ответ уже персонализирован: в строке
+адреса стоят код карго этого клиента и его личный код — по ним коробку опознают в Китае.
+
+| Метод | URL | Auth | Описание |
+|---|---|---|---|
+| GET | `/api/delivery-address/` | да | Адрес склада с кодами текущего клиента |
+
+**Ответ (200):**
+
+```json
+{
+  "recipient_name": "张伟",
+  "phone": "13250150777",
+  "province": "广东",
+  "city": "佛山",
+  "district": "南海",
+  "detail_address": "里水镇和顺鹤峰1号仓315库",
+  "postal_code": "528241",
+  "instructions": "Обязательно оставьте свой код в адресе, иначе посылку не опознают.",
+  "is_active": true,
+  "region": "广东佛山南海",
+  "recipient": "张伟",
+  "one_line": "张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 X0001 528241",
+  "cargo_code": "x69610",
+  "client_code": "X0001",
+  "updated_at": "2026-08-06T02:15:00+06:00"
+}
+```
+
+Поля:
+
+- `one_line` — **готовая строка для вставки** в поле адреса на PDD (умное распознавание / 智能填写). Порядок: `收货人 телефон 省市区 детальный_адрес КОД_КАРГО КОД_КЛИЕНТА индекс`. Оба кода уже внутри.
+- `recipient` — 收货人, **ФИО получателя** на складе. Если ФИО в панели не заполнено, сюда приходит код клиента (фолбэк).
+- `cargo_code` — код карго клиента (`x69610`). Пустая строка, если не задан — тогда его нет и в `one_line`.
+- `client_code` — личный код клиента.
+- `region` — `省市区` слитно, как ожидает распознавание PDD.
+- `is_active` — если `false`, адрес ещё не настроен: экран лучше скрыть или показать заглушку.
+- `instructions` — памятка от карго, показать рядом с адресом.
+
+> ⚠️ Раньше 收货人 был равен коду клиента. Теперь это обычное ФИО, а **оба кода
+> переехали в конец адреса, перед индексом**. Если приложение собирало строку само —
+> перестаньте: используйте `one_line`.
+
+**Что сделать в приложении:**
+
+1. Экран «Адрес для заказов в Китае» (в разделе PDD или профиле).
+2. `GET /api/delivery-address/` с JWT клиента; при `is_active == false` — «адрес ещё не настроен».
+3. Главная кнопка — **«Скопировать»** для `one_line`: клиент вставляет одной строкой, PDD сам разложит по полям.
+4. Опционально — копирование полей по отдельности (收货人, телефон, регион, адрес); тогда `cargo_code` и `client_code` нужно дописать в конец детального адреса.
+5. Подсветить, что **коды в конце адреса убирать нельзя** — без них коробку не опознают.
+
+```dart
+@JsonSerializable()
+class DeliveryAddress {
+  final String recipient;       // 收货人 = ФИО получателя
+  final String oneLine;         // строка для вставки в PDD
+  final String region;          // 省市区
+  final String phone;
+  final String province;
+  final String city;
+  final String district;
+  final String detailAddress;
+  final String postalCode;
+  final String instructions;
+  final bool isActive;
+  final String cargoCode;       // код карго, может быть пустым
+  final String clientCode;
+}
 ```
 
 ---
@@ -1083,7 +1225,7 @@ POST /api/parcels/scan/
 
 ```
 POST /api/parcels/{id}/assign/
-{ "client_code": "C1234567" }
+{ "client_code": "X0001" }
 ```
 
 **Панель управления:**
@@ -1093,8 +1235,26 @@ POST /api/parcels/{id}/assign/
 | GET/POST | `/api/manage/pickup-points/` | список/создание своих ПВЗ |
 | GET/PATCH/DELETE | `/api/manage/pickup-points/{id}/` | изменение/удаление ПВЗ |
 | GET/POST/PATCH/DELETE | `/api/manage/city-delivery-tariffs/` `…/{id}/` | тарифы доставки |
-| GET/PATCH | `/api/manage/cargo/` | профиль своего карго (без `slug`/`is_active`) |
+| GET/PATCH | `/api/manage/cargo/` | профиль своего карго (без `slug`/`code`/`is_active`) |
 | GET | `/api/manage/dashboard/` | статистика своего карго |
+
+`GET /api/manage/cargo/` дополнительно отдаёт настройки клиентских кодов:
+
+```json
+{
+  "price_per_kg_kgs": "306.25",
+  "client_code_prefix": "X",
+  "client_code_seq": 42,
+  "client_code_next": "X0043"
+}
+```
+
+`client_code_prefix` владелец может менять (уникален на всю платформу),
+`client_code_seq` и `client_code_next` — только на чтение.
+
+В `/api/manage/dashboard/` денежные поля переименованы под сомы:
+`period_revenue_kgs`, `period_avg_check_kgs`, `issued_revenue_kgs`,
+`potential_revenue_kgs` (раньше — те же имена с `_usd`).
 
 ### 9.Y Эндпоинт главного владельца (суперпользователь)
 
@@ -1105,7 +1265,7 @@ GET /api/admin/overview/
 ```json
 {
   "totals": { "cargo_count": 5, "active_cargo_count": 4, "user_count": 1200, "parcel_count": 8000, "order_count": 9000, "pickup_point_count": 18 },
-  "per_cargo": [ { "id": 1, "title": "Карго А", "slug": "cargo-a", "is_active": true, "users_count": 300, "parcels_count": 2000, "orders_count": 2200, "pickup_points_count": 5 } ]
+  "per_cargo": [ { "id": 1, "title": "Карго А", "slug": "cargo-a", "code": "x69610", "is_active": true, "users_count": 300, "parcels_count": 2000, "orders_count": 2200, "pickup_points_count": 5 } ]
 }
 ```
 
@@ -1139,10 +1299,12 @@ Main (BottomNavigation)
   │     └── Заказ доставки по городу
   ├── Shops
   │     ├── Список магазинов
+  │     ├── Адрес склада в Китае (копировать one_line)
   │     └── WebView / внешний браузер
   └── Profile
         ├── Данные профиля
         ├── QR-код (полноэкранный)
+        ├── Адрес склада в Китае (дубль входа — клиенту он нужен часто)
         ├── Настройки уведомлений
         ├── Pinduoduo
         ├── Уведомления (inbox)
@@ -1195,6 +1357,13 @@ final router = GoRouter(
 3. На сервере укажите `FCM_CREDENTIALS_PATH` — путь к service account JSON
 4. Без credentials сервер работает в mock-режиме (push не отправляется, in-app уведомления создаются)
 
+> ⚠️ **Статус на 2026-08-06:** на проде `FCM_CREDENTIALS_PATH` **не задан** — сервер
+> в mock-режиме, реальные пуши не уходят (пишутся в лог). Уведомления при этом
+> создаются в БД и видны через `/api/notifications/`. Чтобы включить доставку, нужен
+> service-account JSON проекта Firebase на сервере. Токены устройств тоже пока не
+> регистрировались — проверьте, что приложение шлёт `POST /api/device-tokens/` после
+> входа и на `onTokenRefresh`.
+
 ### Инициализация в Flutter
 
 ```dart
@@ -1232,7 +1401,19 @@ Future<void> setupPushNotifications() async {
 Сервер отправляет:
 
 - `notification.title` / `notification.body` — для системного баннера
-- `data` — строковые key-value (например `type`, `parcel_id`)
+- `data` — строковые key-value. **Все значения — строки** (требование FCM): `parcel_id` придёт как `"7"`, а не `7`.
+
+Ключ `type` есть **всегда** — по нему роутится tap. Для событий по посылке дополнительно приходят `parcel_id`, `track_number`, `status`, `status_display_name`.
+
+```json
+{
+  "type": "parcel_status_changed",
+  "parcel_id": "7",
+  "track_number": "LP00123456789CN",
+  "status": "in_transit",
+  "status_display_name": "В пути"
+}
+```
 
 Пример обработки tap:
 
@@ -1243,7 +1424,9 @@ void _handleNotificationTap(RemoteMessage message) {
 
   switch (type) {
     case 'parcel_at_pickup_point':
+    case 'parcel_status_changed':
       router.push('/parcels/$parcelId');
+    case 'order_created':
     case 'order_status_changed':
       router.push('/orders/${message.data['order_id']}');
     default:
@@ -1251,6 +1434,28 @@ void _handleNotificationTap(RemoteMessage message) {
   }
 }
 ```
+
+### Когда приходят пуши по посылке
+
+Клиент получает уведомление на каждом шаге пути. Тексты формирует сервер —
+показывайте `notification.body` как есть.
+
+| Статус | Заголовок |
+|---|---|
+| `arrived_china_warehouse` | Посылка на складе в Китае |
+| `processing` | Посылка на обработке |
+| `arrived_topa` | Посылка прибыла в Топа |
+| `in_transit` | Посылка в пути |
+| `arrived_kyrgyzstan` | Посылка прибыла в Кыргызстан |
+| `at_pickup_point` | Посылка в ПВЗ (`type: parcel_at_pickup_point`) |
+| `issued` | Посылка выдана |
+
+Промежуточные статусы двигает планировщик. Если посылка «догоняет» несколько шагов
+за один прогон (крон долго не работал), придёт **один** пуш — по итоговому статусу,
+а не серия из четырёх. В истории посылки при этом видны все шаги.
+
+Клиент может отключить эту категорию: `parcel_status_enabled: false` в
+`/api/profile/notification-preferences/` — тогда не будет ни пуша, ни записи в inbox.
 
 ### Синхронизация badge
 
@@ -1555,6 +1760,26 @@ final dateFormat = DateFormat('dd.MM.yyyy HH:mm', 'ru');
 final parsed = DateTime.parse(iso8601).toLocal();
 ```
 
+### Деньги
+
+**Все суммы в API — сомы.** Это касается `delivery_price` посылки, `price` и полей
+тарифа в доставке по городу, `price_per_kg_kgs` у карго. Раньше суммы посылок и тариф
+карго считались в долларах и в приложении рисовались с «$» — такие места надо найти
+и заменить, иначе клиент увидит «$306.25» вместо «306.25 сом».
+
+```dart
+final _money = NumberFormat.decimalPatternDigits(locale: 'ru', decimalDigits: 2);
+
+/// «306.25» → «306,25 сом». Пусто/невалидно → прочерк.
+String formatMoney(String? raw) {
+  final v = double.tryParse(raw ?? '');
+  return v == null ? '—' : '${_money.format(v)} сом';
+}
+```
+
+Суммы приходят **строками** (`DecimalField`) — парсите через `double.tryParse`,
+не полагайтесь на то, что JSON отдаст число.
+
 ---
 
 ## 16. Тестирование
@@ -1651,6 +1876,7 @@ Push capabilities: Background Modes → Remote notifications.
 
 ### Профиль
 - [ ] Отображение client_code и QR
+- [ ] `client_code` показывается как есть (нет парсинга формата и проверки длины)
 - [ ] Смена ФИО и ПВЗ
 - [ ] Настройки уведомлений
 
@@ -1659,6 +1885,14 @@ Push capabilities: Background Modes → Remote notifications.
 - [ ] Timeline истории посылки
 - [ ] Ручное создание заказа
 - [ ] Доставка по городу: estimate → create
+
+### Миграция на новую версию API (обязательно)
+- [ ] Все суммы подписаны «сом», нигде не осталось «$»
+- [ ] Тариф карго читается из `price_per_kg_kgs` (не `price_per_kg_usd` — поля больше нет)
+- [ ] `ParcelStatus` знает `processing`, `arrived_topa`, `in_transit`, `in_storage`
+- [ ] Неизвестный статус не роняет парсинг — есть `unknown` + фолбэк на `status_display_name`
+- [ ] Экран «Адрес для заказов в Китае»: копирование `one_line`, коды в конце адреса не теряются
+- [ ] Повторная регистрация с тем же номером ведёт на вход (`is_new_user: false`), а не в ошибку
 
 ### Магазины
 - [ ] WebView / external browser по `open_type`
@@ -1697,8 +1931,12 @@ python manage.py runserver
 #    GET  /api/cargo-companies/
 #    POST /api/auth/send-code/  { phone, cargo_id, purpose: "register" }
 #    POST /api/auth/verify-code/ { phone, code, cargo_id, pickup_point_id, full_name }
-#    GET  /api/profile/  (Authorization: Bearer ...)
+#    GET  /api/profile/           (Authorization: Bearer ...)
+#    GET  /api/delivery-address/  (Authorization: Bearer ...)
 ```
+
+Если SMS-шлюз недоступен локально, задайте в `.env` резервный код `OTP_MASTER_CODE=<код>` —
+он проходит проверку для любого номера, регистрация не блокируется.
 
 ## Приложение B. OpenAPI → Dart models
 

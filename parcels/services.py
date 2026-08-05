@@ -322,8 +322,11 @@ def advance_parcel_auto(parcel, now=None):
         return False
     while idx < target:
         idx += 1
-        # Авто-шаги пишут историю (видно в трекинге), но без пуша клиенту.
-        parcel._suppress_notification = True
+        # Уведомляем только по итоговому статусу прогона: посылка может
+        # «догнать» несколько шагов сразу (крон долго не запускался, старая
+        # посылка), и четыре пуша подряд были бы спамом. Промежуточные шаги
+        # всё равно попадают в историю и видны в трекинге.
+        parcel._suppress_notification = idx < target
         update_parcel_status(parcel, AUTO_FLOW[idx], comment="Автоматический статус")
     return True
 

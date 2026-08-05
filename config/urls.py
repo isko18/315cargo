@@ -17,6 +17,7 @@ from cargo.views import (
     CargoDashboardAPIView,
     MyCargoAPIView,
 )
+from common import invites
 from common.views import DeliveryAddressAPIView
 from city_delivery.views import (
     CityDeliveryRequestViewSet,
@@ -78,6 +79,18 @@ _delete_account_view = TemplateView.as_view(
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Верификация домена для App Links / Universal Links. Пути фиксированы
+    # операционными системами: ровно 200, application/json, без редиректов.
+    path(".well-known/assetlinks.json", invites.assetlinks, name="assetlinks"),
+    path(
+        ".well-known/apple-app-site-association",
+        invites.apple_app_site_association,
+        name="apple-app-site-association",
+    ),
+    # Ссылка-приглашение карго. Канонический вид — без слеша (он в QR и на
+    # визитках); вариант со слешем принимаем, чтобы не ловить 404 из-за опечатки.
+    path("j/<slug:slug>", invites.cargo_invite, name="cargo-invite"),
+    path("j/<slug:slug>/", invites.cargo_invite),
     # Публичная страница удаления аккаунта (требование Google Play).
     path("delete-account", _delete_account_view, name="delete-account"),
     path("delete-account/", _delete_account_view),

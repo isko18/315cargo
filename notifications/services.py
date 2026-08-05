@@ -91,7 +91,10 @@ def send_push_notification(
         logger.info("No active device tokens", extra={"user_id": user.id})
         return False
 
+    # FCM принимает только строковые значения в data.
     payload = {k: str(v) for k, v in (data or {}).items()}
+    # Тип кладём всегда: мобилка роутит tap по нему (parcel → экран посылки).
+    payload.setdefault("type", str(type))
 
     if not _ensure_firebase_initialized():
         logger.info(

@@ -3,6 +3,7 @@ import { money } from '../money';
 import { ApiError, get, patch } from '../api';
 import { IconTariff, IconWeight, IconRevenue, IconStaff, IconCheck } from '../components/Icons';
 import { useI18n } from '../i18n';
+import InviteLink from '../components/InviteLink';
 import {
   Alert,
   Button,
@@ -24,6 +25,8 @@ type MyCargo = {
   client_code_prefix: string;
   client_code_seq: number;
   client_code_next: string;
+  invite_url: string;
+  invite_qr: string;
 };
 
 // Ширина номера в клиентском коде — зеркалит CLIENT_CODE_DIGITS на бэкенде.
@@ -125,6 +128,15 @@ export default function CargoSettingsPage() {
           hint={`${t('ccode.issued')}: ${cargo?.client_code_seq ?? 0}`}
         />
       </StatGrid>
+
+      {cargo?.invite_url && (
+        <Card>
+          <CardHeader title={t('invite.card')} description={t('invite.cardDesc')} />
+          <CardBody>
+            <InviteLink url={cargo.invite_url} qr={cargo.invite_qr} />
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title={t('ccode.card')} description={t('ccode.cardDesc')} />
