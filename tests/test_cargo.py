@@ -15,7 +15,7 @@ def test_super_owner_creates_cargo_with_owner(superuser_client):
         "slug": "new-cargo",
         "phone": "+996700123123",
         "address": "Бишкек",
-        "price_per_kg_usd": "4.00",
+        "price_per_kg_kgs": "4.00",
         "owner_name": "Владелец Карго",
         "owner_phone": "+996700123124",
         "owner_password": "ownerpw1",
@@ -29,7 +29,7 @@ def test_super_owner_creates_cargo_with_owner(superuser_client):
     owner = User.objects.get(phone="+996700123124", cargo=cargo)
     assert owner.is_cargo_admin and owner.is_staff
     assert owner.check_password("ownerpw1")
-    assert str(cargo.price_per_kg_usd) == "4.00"
+    assert str(cargo.price_per_kg_kgs) == "4.00"
 
 
 @pytest.mark.django_db
@@ -61,6 +61,72 @@ def test_created_owner_can_login_and_manage(api_client, superuser_client):
 
 
 @pytest.mark.django_db
+def test_cargo_code_set_on_create_and_must_be_unique(superuser_client):
+    base = {
+        "owner_name": "Владелец",
+        "owner_password": "ownerpw1",
+    }
+    r = superuser_client.post(
+        "/api/admin/cargos/",
+        {**base, "title": "Карго Код", "slug": "cargo-code", "code": " x69610 ", "owner_phone": "+996700123130"},
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+    assert r.data["cargo"]["code"] == "x69610"  # пробелы обрезаются
+    assert CargoCompany.objects.get(slug="cargo-code").code == "x69610"
+
+    # Тот же код (в другом регистре) — занят.
+    r = superuser_client.post(
+        "/api/admin/cargos/",
+        {**base, "title": "Карго Два", "slug": "cargo-code-2", "code": "X69610", "owner_phone": "+996700123131"},
+        format="json",
+    )
+    assert r.status_code == 400
+    assert "code" in r.data
+
+    # Кривой формат — отказ.
+    r = superuser_client.post(
+        "/api/admin/cargos/",
+        {**base, "title": "Карго Три", "slug": "cargo-code-3", "code": "код карго", "owner_phone": "+996700123132"},
+        format="json",
+    )
+    assert r.status_code == 400
+    assert "code" in r.data
+
+
+@pytest.mark.django_db
+def test_cargo_code_optional_and_editable(superuser_client, cargo):
+    """Без кода карго создаётся (NULL), несколько таких не конфликтуют."""
+    for i, slug in enumerate(("no-code-a", "no-code-b")):
+        r = superuser_client.post(
+            "/api/admin/cargos/",
+            {
+                "title": f"Без кода {i}",
+                "slug": slug,
+                "owner_name": "Владелец",
+                "owner_phone": f"+99670012314{i}",
+                "owner_password": "ownerpw1",
+            },
+            format="json",
+        )
+        assert r.status_code == 201, r.data
+        assert r.data["cargo"]["code"] is None
+
+    r = superuser_client.patch(
+        f"/api/admin/cargos/{cargo.id}/", {"code": "y11111"}, format="json"
+    )
+    assert r.status_code == 200, r.data
+    cargo.refresh_from_db()
+    assert cargo.code == "y11111"
+
+    # Очистка кода допустима (пустая строка → NULL).
+    r = superuser_client.patch(f"/api/admin/cargos/{cargo.id}/", {"code": ""}, format="json")
+    assert r.status_code == 200, r.data
+    cargo.refresh_from_db()
+    assert cargo.code is None
+
+
+@pytest.mark.django_db
 def test_create_cargo_forbidden_for_non_super(cargo_admin_client):
     r = cargo_admin_client.post(
         "/api/admin/cargos/",
@@ -74,14 +140,14 @@ def test_create_cargo_forbidden_for_non_super(cargo_admin_client):
 def test_super_owner_edits_cargo(superuser_client, cargo):
     r = superuser_client.patch(
         f"/api/admin/cargos/{cargo.id}/",
-        {"title": "Переименованный", "is_active": False, "price_per_kg_usd": "6.00"},
+        {"title": "Переименованный", "is_active": False, "price_per_kg_kgs": "6.00"},
         format="json",
     )
     assert r.status_code == 200, r.data
     cargo.refresh_from_db()
     assert cargo.title == "Переименованный"
     assert cargo.is_active is False
-    assert str(cargo.price_per_kg_usd) == "6.00"
+    assert str(cargo.price_per_kg_kgs) == "6.00"
 
 
 @pytest.mark.django_db

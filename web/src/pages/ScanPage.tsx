@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { money } from '../money';
 import { ApiError, getRole, post } from '../api';
 import { statusMeta } from '../status';
 import { useI18n } from '../i18n';
@@ -154,9 +155,9 @@ export default function ScanPage() {
     },
     {
       key: 'price',
-      header: t('op.priceUsd'),
+      header: t('op.price'),
       align: 'right',
-      render: (e) => <span className="num">{e.parcel.delivery_price ? `$${e.parcel.delivery_price}` : '—'}</span>,
+      render: (e) => <span className="num">{money(e.parcel.delivery_price)}</span>,
     },
     {
       key: 'client',

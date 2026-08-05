@@ -226,7 +226,7 @@ class CargoDashboardAPIView(APIView):
 
         data = {
             "cargo": {"id": cargo.id, "title": cargo.title, "slug": cargo.slug},
-            "price_per_kg_usd": float(cargo.price_per_kg_usd),
+            "price_per_kg_kgs": float(cargo.price_per_kg_kgs),
             "pickup": {
                 "id": int(pickup_id) if pickup_id else None,
                 "title": pickup_title,
@@ -238,9 +238,9 @@ class CargoDashboardAPIView(APIView):
             },
             # KPI за выбранный период
             "period_issued_count": p_count,
-            "period_revenue_usd": round(p_revenue, 2),
+            "period_revenue_kgs": round(p_revenue, 2),
             "period_weight_kg": round(p_weight, 2),
-            "period_avg_check_usd": round(p_revenue / p_count, 2) if p_count else 0.0,
+            "period_avg_check_kgs": round(p_revenue / p_count, 2) if p_count else 0.0,
             "period_avg_weight_kg": round(p_weight / p_count, 3) if p_count else 0.0,
             "period_received_count": received_period.count(),
             "timeseries": timeseries,
@@ -256,10 +256,10 @@ class CargoDashboardAPIView(APIView):
             "parcels_count": parcels.count(),
             "parcels_pending_count": parcels.filter(user__isnull=True).count(),
             "issued_count": issued.count(),
-            "issued_revenue_usd": _num(issued_all["revenue"]),
+            "issued_revenue_kgs": _num(issued_all["revenue"]),
             "issued_weight_kg": _num(issued_all["weight"]),
             "total_weight_kg": _num(totals_all["weight"]),
-            "potential_revenue_usd": _num(totals_all["revenue"]),
+            "potential_revenue_kgs": _num(totals_all["revenue"]),
         }
         return Response(data)
 
@@ -282,6 +282,7 @@ class AdminOverviewAPIView(APIView):
                 "id": c.id,
                 "title": c.title,
                 "slug": c.slug,
+                "code": c.code,
                 "is_active": c.is_active,
                 "users_count": c.users_count,
                 "parcels_count": c.parcels_count,
@@ -407,9 +408,10 @@ class AdminCargoViewSet(ModelViewSet):
                     "id": cargo.id,
                     "title": cargo.title,
                     "slug": cargo.slug,
+                    "code": cargo.code,
                     "phone": cargo.phone,
                     "address": cargo.address,
-                    "price_per_kg_usd": float(cargo.price_per_kg_usd),
+                    "price_per_kg_kgs": float(cargo.price_per_kg_kgs),
                     "is_active": cargo.is_active,
                 },
                 "totals": {

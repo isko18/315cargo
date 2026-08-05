@@ -21,14 +21,17 @@ export default function ClientSearch({
   placeholder,
   autoFocus,
   size = 'md',
+  initialQuery = '',
 }: {
   onPick: (c: ClientHit) => void;
   placeholder?: string;
   autoFocus?: boolean;
   size?: 'md' | 'sm';
+  /** Стартовое значение поля (например, код из QR). Меняется через key-ремоунт. */
+  initialQuery?: string;
 }) {
   const { t } = useI18n();
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialQuery);
   const [debounced, setDebounced] = useState('');
   const [results, setResults] = useState<ClientHit[] | null>(null);
   const [loading, setLoading] = useState(false);

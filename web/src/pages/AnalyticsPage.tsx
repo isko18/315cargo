@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get } from '../api';
 import { statusMeta } from '../status';
 import { usePickup } from '../pickupContext';
@@ -30,13 +31,13 @@ type Pickup = { title: string; count: number; revenue: number };
 
 type Dashboard = {
   cargo: { id: number; title: string; slug: string };
-  price_per_kg_usd: number;
+  price_per_kg_kgs: number;
   pickup: { id: number | null; title: string | null };
   period: { key: string; from: string | null; to: string };
   period_issued_count: number;
-  period_revenue_usd: number;
+  period_revenue_kgs: number;
   period_weight_kg: number;
-  period_avg_check_usd: number;
+  period_avg_check_kgs: number;
   period_avg_weight_kg: number;
   period_received_count: number;
   timeseries: Point[];
@@ -49,15 +50,14 @@ type Dashboard = {
   parcels_count: number;
   parcels_pending_count: number;
   issued_count: number;
-  issued_revenue_usd: number;
+  issued_revenue_kgs: number;
   issued_weight_kg: number;
   total_weight_kg: number;
-  potential_revenue_usd: number;
+  potential_revenue_kgs: number;
 };
 
 const PERIOD_KEYS = ['today', '7d', '30d', '90d', '365d', 'all'] as const;
 
-const money = (v: number) => `$${v.toFixed(2)}`;
 const kg = (v: number) => `${v.toFixed(2)} кг`;
 const fmtDay = (iso: string) => {
   const [, m, d] = iso.split('-');
@@ -192,9 +192,9 @@ export default function AnalyticsPage() {
       ) : (
         <>
           <StatGrid className="mb-lg">
-            <Stat icon={<IconRevenue size={19} />} tone="green" label={t('an.kpiRevenue')} value={money(d.period_revenue_usd)} hint={`${d.period_issued_count} ${t('an.issues')}`} />
+            <Stat icon={<IconRevenue size={19} />} tone="green" label={t('an.kpiRevenue')} value={money(d.period_revenue_kgs)} hint={`${d.period_issued_count} ${t('an.issues')}`} />
             <Stat icon={<IconIssue size={19} />} tone="blue" label={t('an.kpiIssued')} value={String(d.period_issued_count)} hint={`${t('an.received')}: ${d.period_received_count}`} />
-            <Stat icon={<IconTariff size={19} />} tone="violet" label={t('an.kpiCheck')} value={money(d.period_avg_check_usd)} hint={t('an.perParcel')} />
+            <Stat icon={<IconTariff size={19} />} tone="violet" label={t('an.kpiCheck')} value={money(d.period_avg_check_kgs)} hint={t('an.perParcel')} />
             <Stat icon={<IconWeight size={19} />} tone="amber" label={t('an.kpiAvgWeight')} value={kg(d.period_avg_weight_kg)} hint={`${t('an.totalShort')} ${kg(d.period_weight_kg)}`} />
           </StatGrid>
 
@@ -210,7 +210,7 @@ export default function AnalyticsPage() {
                   disabled={d.timeseries.length === 0}
                   onClick={() =>
                     downloadCsv(`analytics-${today()}.csv`, [
-                      [t('wh.created'), t('an.colIssues'), t('op.priceUsd')],
+                      [t('wh.created'), t('an.colIssues'), t('op.price')],
                       ...d.timeseries.map((p) => [p.date, p.count, p.revenue]),
                     ])
                   }
@@ -267,8 +267,8 @@ export default function AnalyticsPage() {
             <CardHeader title={t('an.allTime')} />
             <CardBody>
               <StatGrid>
-                <Stat icon={<IconRevenue size={19} />} tone="green" label={t('an.atRevenue')} value={money(d.issued_revenue_usd)} hint={`${d.issued_count} ${t('an.parcelsWord')}`} />
-                <Stat icon={<IconTariff size={19} />} tone="amber" label={t('an.atPotential')} value={money(d.potential_revenue_usd)} hint={t('an.atIfAll')} />
+                <Stat icon={<IconRevenue size={19} />} tone="green" label={t('an.atRevenue')} value={money(d.issued_revenue_kgs)} hint={`${d.issued_count} ${t('an.parcelsWord')}`} />
+                <Stat icon={<IconTariff size={19} />} tone="amber" label={t('an.atPotential')} value={money(d.potential_revenue_kgs)} hint={t('an.atIfAll')} />
                 <Stat icon={<IconBox size={19} />} tone="gray" label={t('an.atParcelsOrders')} value={`${d.parcels_count} / ${d.orders_count}`} />
                 <Stat icon={<IconStaff size={19} />} tone="teal" label={t('an.clientsWord')} value={String(d.users_count)} hint={`${t('wh.pvz')}: ${d.pickup_points_count}`} />
               </StatGrid>

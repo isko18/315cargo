@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get, patch } from '../api';
 import { useI18n } from '../i18n';
 import type { Tone } from '../status';
@@ -101,7 +102,7 @@ export default function DeliveryPage() {
         </div>
       ),
     },
-    { key: 'price', header: t('op.priceUsd'), align: 'right', sortValue: (r) => parseFloat(r.price || '0'), render: (r) => <span className="num">{r.price ? `$${r.price}` : '—'}</span> },
+    { key: 'price', header: t('op.price'), align: 'right', sortValue: (r) => parseFloat(r.price || '0'), render: (r) => <span className="num">{money(r.price)}</span> },
     { key: 'created', header: t('wh.created'), align: 'right', sortValue: (r) => r.created_at, render: (r) => <span className="num">{fmtDate(r.created_at)}</span> },
     {
       key: 'status',

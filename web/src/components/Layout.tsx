@@ -45,7 +45,7 @@ const NAV = [
     items: [
       { to: '/staff', tab: 'staff', label: 'nav.staff', icon: IconStaff },
       { to: '/pickup-points', tab: 'pickup', label: 'nav.pickup', icon: IconWarehouse },
-      { to: '/tariff', tab: 'tariff', label: 'nav.tariff', icon: IconTariff },
+      { to: '/cargo-settings', tab: 'tariff', label: 'nav.cargoSettings', icon: IconTariff },
       { to: '/delivery-tariff', tab: 'delivery_tariff', label: 'nav.deliveryTariff', icon: IconRevenue },
       { to: '/delivery-address', tab: 'delivery_address', label: 'nav.deliveryAddress', icon: IconPin },
     ],

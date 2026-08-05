@@ -62,15 +62,15 @@ class DeliveryAddress(models.Model):
 
     Единственная запись на всю платформу (singleton, pk=1). Заполняет только
     супер-владелец; все карго и их клиенты используют этот же адрес. Клиент в
-    приложении получает адрес с уже вшитым СВОИМ клиентским кодом в имени
-    получателя (收货人) — чтобы при приёмке в Китае опознать коробку.
+    приложении получает адрес с уже вшитым СВОИМ клиентским кодом — он стоит в
+    конце адреса, перед индексом, чтобы при приёмке в Китае опознать коробку.
     """
 
     recipient_name = models.CharField(
-        _("Получатель по умолчанию (收货人)"),
+        _("ФИО получателя (收货人)"),
         max_length=128,
         blank=True,
-        help_text=_("Запасное имя, если у зрителя нет кода. Клиенту подставляется его код."),
+        help_text=_("Имя получателя на складе. Код клиента идёт в конец адреса, перед индексом."),
     )
     phone = models.CharField(_("Телефон (手机号)"), max_length=32, blank=True)
     province = models.CharField(_("Провинция (省)"), max_length=64, blank=True)
@@ -111,26 +111,34 @@ class DeliveryAddress(models.Model):
     def __str__(self):
         return _("Адрес доставки (Китай)")
 
-    def recipient_with_code(self, client_code=None):
-        """Имя получателя (收货人) = клиентский код.
+    def recipient_for(self, client_code=None):
+        """Имя получателя (收货人) = ФИО получателя на складе.
 
-        Подставляется ТОЛЬКО код клиента — по нему в Китае опознают коробку.
-        Если кода нет (напр. предпросмотр у сотрудника) — базовое имя как запас.
+        Код клиента в имя больше не идёт — он уходит в конец адреса, перед
+        индексом. Если ФИО не заполнено, подставляем код: коробку всё равно
+        нужно уметь опознать.
         """
-        code = (client_code or "").strip()
-        return code or (self.recipient_name or "").strip()
+        return (self.recipient_name or "").strip() or (client_code or "").strip()
 
     def region_line(self):
         """省市区 одной строкой (как ожидает умное распознавание PDD)."""
         return "".join(p for p in (self.province, self.city, self.district) if p)
 
-    def one_line(self, client_code=None):
-        """Готовая строка для вставки в PDD (智能填写)."""
+    def one_line(self, client_code=None, cargo_code=None):
+        """Готовая строка для вставки в PDD (智能填写).
+
+        Порядок: ФИО, телефон, 省市区, детальный адрес, код карго, код клиента,
+        индекс. Код карго — общий для всех клиентов одного карго-центра.
+        """
+        recipient = self.recipient_for(client_code)
+        code = (client_code or "").strip()
         parts = [
-            self.recipient_with_code(client_code),
+            recipient,
             (self.phone or "").strip(),
             self.region_line(),
             (self.detail_address or "").strip(),
+            (cargo_code or "").strip(),
+            "" if code == recipient else code,  # без дубля, если ФИО не задано
             (self.postal_code or "").strip(),
         ]
         return " ".join(p for p in parts if p)

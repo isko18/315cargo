@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get, isPickupBound, post } from '../api';
 import { statusMeta } from '../status';
 import { usePickup } from '../pickupContext';
@@ -128,7 +129,7 @@ export default function WarehousePage() {
 
   function exportCsv() {
     const rows = list ?? [];
-    const header = ['Трек', 'Товар', 'Клиент', 'Код клиента', 'Телефон', 'Статус', 'Вес, кг', 'Стоимость, $', 'ПВЗ', 'Создан'];
+    const header = ['Трек', 'Товар', 'Клиент', 'Код клиента', 'Телефон', 'Статус', 'Вес, кг', 'Стоимость, сом', 'ПВЗ', 'Создан'];
     const body = rows.map((p) => [
       p.track_number,
       p.product_title ?? '',
@@ -242,7 +243,7 @@ export default function WarehousePage() {
       header: t('wh.statValue'),
       align: 'right',
       sortValue: (p) => num(p.delivery_price),
-      render: (p) => <span className="num">{p.delivery_price ? `$${p.delivery_price}` : '—'}</span>,
+      render: (p) => <span className="num">{money(p.delivery_price)}</span>,
     },
     { key: 'pickup', header: t('wh.pvz'), render: (p) => <span style={{ fontSize: 13 }}>{p.pickup_point_title || '—'}</span> },
     {
@@ -272,7 +273,7 @@ export default function WarehousePage() {
         <Stat icon={<IconBox size={19} />} tone="blue" label={`${t('wh.statParcels')}${hasFilters ? ` (${t('wh.statFilter')})` : ''}`} value={summary.count} />
         <Stat icon={<IconWarehouse size={19} />} tone="amber" label={t('wh.statNoClient')} value={summary.noClient} hint={t('wh.statNoClientHint')} />
         <Stat icon={<IconWeight size={19} />} tone="violet" label={t('wh.statWeight')} value={summary.weight.toFixed(2)} hint="кг" />
-        <Stat icon={<IconRevenue size={19} />} tone="green" label={t('wh.statValue')} value={`$${summary.value.toFixed(2)}`} />
+        <Stat icon={<IconRevenue size={19} />} tone="green" label={t('wh.statValue')} value={money(summary.value)} />
       </StatGrid>
 
       <Card>

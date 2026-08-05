@@ -9,7 +9,7 @@ import WarehousePage from './pages/WarehousePage';
 import ChinaPage from './pages/ChinaPage';
 import StaffPage from './pages/StaffPage';
 import PickupPointsPage from './pages/PickupPointsPage';
-import TariffPage from './pages/TariffPage';
+import CargoSettingsPage from './pages/CargoSettingsPage';
 import ClientsPage from './pages/ClientsPage';
 import DeliveryPage from './pages/DeliveryPage';
 import DeliveryTariffPage from './pages/DeliveryTariffPage';
@@ -53,7 +53,9 @@ export default function App() {
         <Route path="/delivery" element={<TabGuard tab="delivery"><DeliveryPage /></TabGuard>} />
         <Route path="/staff" element={<TabGuard tab="staff"><StaffPage /></TabGuard>} />
         <Route path="/pickup-points" element={<TabGuard tab="pickup"><PickupPointsPage /></TabGuard>} />
-        <Route path="/tariff" element={<TabGuard tab="tariff"><TariffPage /></TabGuard>} />
+        <Route path="/cargo-settings" element={<TabGuard tab="tariff"><CargoSettingsPage /></TabGuard>} />
+        {/* Старый адрес страницы тарифа — на случай сохранённых ссылок. */}
+        <Route path="/tariff" element={<Navigate to="/cargo-settings" replace />} />
         <Route path="/delivery-tariff" element={<TabGuard tab="delivery_tariff"><DeliveryTariffPage /></TabGuard>} />
         <Route path="/analytics" element={<TabGuard tab="analytics"><AnalyticsPage /></TabGuard>} />
         <Route path="/overview" element={<TabGuard tab="overview"><OverviewPage /></TabGuard>} />

@@ -89,8 +89,8 @@ def test_scan_matches_order(cargo_admin_client):
 @pytest.mark.django_db
 def test_scan_sets_weight_and_computes_price(cargo_admin_client):
     cargo = cargo_admin_client.user.cargo
-    cargo.price_per_kg_usd = Decimal("3.50")
-    cargo.save(update_fields=["price_per_kg_usd"])
+    cargo.price_per_kg_kgs = Decimal("3.50")
+    cargo.save(update_fields=["price_per_kg_kgs"])
     client = UserFactory(cargo=cargo)
     parcel = ParcelFactory(user=client, cargo=cargo, status=Parcel.Status.CREATED)
 
@@ -113,8 +113,8 @@ def test_scan_sets_weight_and_computes_price(cargo_admin_client):
 @pytest.mark.django_db
 def test_weight_endpoint_recalculates_price(cargo_admin_client):
     cargo = cargo_admin_client.user.cargo
-    cargo.price_per_kg_usd = Decimal("3")
-    cargo.save(update_fields=["price_per_kg_usd"])
+    cargo.price_per_kg_kgs = Decimal("3")
+    cargo.save(update_fields=["price_per_kg_kgs"])
     client = UserFactory(cargo=cargo)
     parcel = ParcelFactory(
         user=client, cargo=cargo, status=Parcel.Status.AT_PICKUP_POINT,

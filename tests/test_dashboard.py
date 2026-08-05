@@ -55,14 +55,14 @@ def test_dashboard_period_filter_scopes_kpis(cargo_admin_client):
     assert r.status_code == 200
     assert r.data["period"]["key"] == "7d"
     assert r.data["period_issued_count"] == 1
-    assert r.data["period_revenue_usd"] == 10.0
-    assert r.data["period_avg_check_usd"] == 10.0
+    assert r.data["period_revenue_kgs"] == 10.0
+    assert r.data["period_avg_check_kgs"] == 10.0
     assert isinstance(r.data["timeseries"], list) and len(r.data["timeseries"]) == 7
 
     # За всё время — обе выдачи.
     r_all = cargo_admin_client.get("/api/manage/dashboard/?period=all")
     assert r_all.data["period_issued_count"] == 2
-    assert r_all.data["period_revenue_usd"] == 15.0
+    assert r_all.data["period_revenue_kgs"] == 15.0
     assert r_all.data["top_clients"][0]["client_code"] == client.client_code
     assert r_all.data["top_clients"][0]["revenue"] == 15.0
 
@@ -92,7 +92,7 @@ def test_dashboard_scopes_by_pickup_point(cargo_admin_client):
     assert r_a.data["pickup"]["id"] == pp_a.id
     assert r_a.data["pickup"]["title"] == "ПВЗ A"
     assert r_a.data["period_issued_count"] == 1
-    assert r_a.data["period_revenue_usd"] == 9.0
+    assert r_a.data["period_revenue_kgs"] == 9.0
     assert r_a.data["users_count"] == 1
     assert r_a.data["parcels_count"] == 1
 
@@ -112,7 +112,7 @@ def test_dashboard_custom_date_range(cargo_admin_client):
     assert r.status_code == 200
     assert r.data["period"]["key"] == "custom"
     assert r.data["period_issued_count"] == 1
-    assert r.data["period_revenue_usd"] == 7.0
+    assert r.data["period_revenue_kgs"] == 7.0
 
 
 @pytest.mark.django_db

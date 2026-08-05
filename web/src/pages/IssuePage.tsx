@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get, getRole, post } from '../api';
 
 // html5-qrcode тяжёлый — грузим сканер отдельным чанком только при открытии.
@@ -60,6 +61,7 @@ export default function IssuePage() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [scan, setScan] = useState<{ code: string; n: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -101,9 +103,25 @@ export default function IssuePage() {
     };
   }, [debounced]);
 
+  // QR клиента содержит только client_code, но некоторые генераторы отдают ссылку —
+  // берём последний непустой сегмент, чтобы не искать по мусору.
+  function normalizeCode(text: string) {
+    const raw = text.trim();
+    if (!raw) return '';
+    const parts = raw.split(/[\s/?#]+/).filter(Boolean);
+    return parts[parts.length - 1] ?? '';
+  }
+
   function onQr(text: string) {
     setScanning(false);
-    setClientCode(text);
+    const code = normalizeCode(text);
+    if (code.length < 3) {
+      setErr(`${t('issue.scanQr')}: ${text || '—'}`);
+      return;
+    }
+    setErr('');
+    setClientCode(code);
+    setScan((s) => ({ code, n: (s?.n ?? 0) + 1 })); // подставить код в поле поиска
   }
 
   // Вес на выдаче: сохраняем и обновляем строку (бэкенд пересчитывает цену),
@@ -172,7 +190,7 @@ export default function IssuePage() {
         errors.push(`${p.track_number}: ${(e as ApiError).message}`);
       }
     }
-    setMsg(`${t('issue.done')}: ${ok} / ${chosen.length} · $${totals.price.toFixed(2)}`);
+    setMsg(`${t('issue.done')}: ${ok} / ${chosen.length} · ${money(totals.price)}`);
     if (errors.length) setErr(errors.join('\n'));
     setBusy(false);
     if (ok > 0) setIssuedTick((n) => n + 1); // обновить историю выдач
@@ -249,9 +267,9 @@ export default function IssuePage() {
     },
     {
       key: 'price',
-      header: t('op.priceUsd'),
+      header: t('op.price'),
       align: 'right',
-      render: (p) => <span className="num">{p.delivery_price ? `$${p.delivery_price}` : '—'}</span>,
+      render: (p) => <span className="num">{money(p.delivery_price)}</span>,
     },
     {
       key: 'status',
@@ -295,6 +313,8 @@ export default function IssuePage() {
           <div className="row">
             <Field label={t('issue.clientCodeLabel')} helper={t('issue.searchHint')} style={{ flex: 3 }}>
               <ClientSearch
+                key={scan?.n ?? 0}
+                initialQuery={scan?.code}
                 autoFocus
                 placeholder={t('clientsearch.placeholder')}
                 onPick={(c) => setClientCode(c.client_code)}
@@ -353,7 +373,7 @@ export default function IssuePage() {
               <span className="m-lbl">{t('issue.weight')}</span>
             </div>
             <div className="metric total">
-              <span className="m-val">${totals.price.toFixed(2)}</span>
+              <span className="m-val">{money(totals.price)}</span>
               <span className="m-lbl">{t('issue.toPay')}</span>
             </div>
             <span className="grow" />

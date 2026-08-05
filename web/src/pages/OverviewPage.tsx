@@ -37,6 +37,7 @@ type CargoRow = {
   id: number;
   title: string;
   slug: string;
+  code: string | null;
   is_active: boolean;
   users_count: number;
   parcels_count: number;
@@ -49,9 +50,11 @@ type AdminInfo = { id: number; full_name: string; phone: string; is_active: bool
 const EMPTY = {
   title: '',
   slug: '',
+  code: '',
+  client_code_prefix: '',
   phone: '',
   address: '',
-  price_per_kg_usd: '',
+  price_per_kg_kgs: '',
   is_active: true,
   owner_name: '',
   owner_phone: '',
@@ -148,9 +151,11 @@ export default function OverviewPage() {
         ...EMPTY,
         title: c.title ?? '',
         slug: c.slug ?? '',
+        code: c.code ?? '',
+        client_code_prefix: c.client_code_prefix ?? '',
         phone: c.phone ?? '',
         address: c.address ?? '',
-        price_per_kg_usd: String(c.price_per_kg_usd ?? ''),
+        price_per_kg_kgs: String(c.price_per_kg_kgs ?? ''),
         is_active: Boolean(c.is_active),
       });
       setAdmins(adm);
@@ -161,7 +166,13 @@ export default function OverviewPage() {
   }
 
   const pwdShort = form.owner_password.length > 0 && form.owner_password.length < 6;
-  const cargoValid = Boolean(form.title.trim());
+  // Код карго необязателен, но если задан — только латиница/цифры/«-»/«_», 2–32.
+  const codeBad = form.code.trim().length > 0 && !/^[A-Za-z0-9_-]{2,32}$/.test(form.code.trim());
+  // Префикс клиентского кода: буквы/цифры, 1–6. Пусто — бэкенд подберёт сам.
+  const prefixRaw = form.client_code_prefix.trim();
+  const prefixBad = prefixRaw.length > 0 && !/^[A-Za-zА-Яа-яЁё0-9]{1,6}$/.test(prefixRaw);
+  const prefixPreview = !prefixBad && prefixRaw ? `${prefixRaw}0001` : undefined;
+  const cargoValid = Boolean(form.title.trim()) && !codeBad && !prefixBad;
   const canSubmit = editId
     ? Boolean(cargoValid)
     : Boolean(cargoValid && form.owner_name.trim() && form.owner_phone.trim() && form.owner_password.length >= 6);
@@ -176,24 +187,28 @@ export default function OverviewPage() {
         // slug неизменяем после создания — не отправляем.
         const body: Record<string, unknown> = {
           title: form.title.trim(),
+          code: form.code.trim(),
           phone: form.phone.trim(),
+          ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
           is_active: form.is_active,
         };
-        if (form.price_per_kg_usd.trim()) body.price_per_kg_usd = form.price_per_kg_usd.trim();
+        if (form.price_per_kg_kgs.trim()) body.price_per_kg_kgs = form.price_per_kg_kgs.trim();
         await patch(`/api/admin/cargos/${editId}/`, body);
         setBanner(t('ov.cargoUpdated'));
       } else {
         const body: Record<string, unknown> = {
           title: form.title.trim(),
           slug: form.slug.trim() || autoSlug(form.title) || `cargo-${Date.now().toString(36)}`,
+          code: form.code.trim(),
           phone: form.phone.trim(),
+          ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
           owner_name: form.owner_name.trim(),
           owner_phone: form.owner_phone.trim(),
           owner_password: form.owner_password,
         };
-        if (form.price_per_kg_usd.trim()) body.price_per_kg_usd = form.price_per_kg_usd.trim();
+        if (form.price_per_kg_kgs.trim()) body.price_per_kg_kgs = form.price_per_kg_kgs.trim();
         const r = await post<{ cargo: CargoRow; owner: { phone: string } }>('/api/admin/cargos/', body);
         setBanner(`«${r.cargo.title}» ${t('ov.createdOk')} ${r.owner.phone} ${t('ov.andPwd')}`);
       }
@@ -258,7 +273,10 @@ export default function OverviewPage() {
       render: (c) => (
         <div>
           <div className="strong">{c.title}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>{c.slug}</div>
+          <div className="muted mono" style={{ fontSize: 12.5 }}>
+            {c.slug}
+            {c.code && ` · ${c.code}`}
+          </div>
         </div>
       ),
     },
@@ -375,6 +393,37 @@ export default function OverviewPage() {
                 autoFocus
               />
             </Field>
+            <Field
+              label={t('ov.clientPrefix')}
+              className="mt-md"
+              helper={!prefixBad ? t('ov.clientPrefixHint') : undefined}
+              error={prefixBad ? t('ccode.prefixErr') : undefined}
+              style={{ maxWidth: 280 }}
+            >
+              <Input
+                value={form.client_code_prefix}
+                onChange={(e) => set('client_code_prefix', e.target.value)}
+                placeholder="X"
+                autoComplete="off"
+                invalid={prefixBad}
+                suffix={prefixPreview}
+              />
+            </Field>
+            <Field
+              label={t('ov.code')}
+              className="mt-md"
+              helper={!codeBad ? t('ov.codeHint') : undefined}
+              error={codeBad ? t('ov.codeErr') : undefined}
+              style={{ maxWidth: 280 }}
+            >
+              <Input
+                value={form.code}
+                onChange={(e) => set('code', e.target.value)}
+                placeholder="x69610"
+                autoComplete="off"
+                invalid={codeBad}
+              />
+            </Field>
             <div className="grid-2 mt-md">
               <Field label={t('ov.phone')}>
                 <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+996700000000" inputMode="tel" />
@@ -385,9 +434,9 @@ export default function OverviewPage() {
                   min="0"
                   step="0.01"
                   inputMode="decimal"
-                  suffix="$ / кг"
-                  value={form.price_per_kg_usd}
-                  onChange={(e) => set('price_per_kg_usd', e.target.value)}
+                  suffix="сом / кг"
+                  value={form.price_per_kg_kgs}
+                  onChange={(e) => set('price_per_kg_kgs', e.target.value)}
                   placeholder="0.00"
                 />
               </Field>

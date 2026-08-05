@@ -19,6 +19,8 @@ class CargoCompanyFactory(DjangoModelFactory):
 
     title = factory.Sequence(lambda n: f"Карго #{n}")
     slug = factory.Sequence(lambda n: f"cargo-{n}")
+    # Префикс кода клиента уникален на карго — в фабрике тоже разводим.
+    client_code_prefix = factory.Sequence(lambda n: f"T{n}")
     is_active = True
 
 

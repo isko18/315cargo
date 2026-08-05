@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get } from '../api';
 import { statusMeta } from '../status';
 import { useI18n } from '../i18n';
@@ -209,7 +210,7 @@ function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void
                     <div style={{ textAlign: 'right' }}>
                       <Badge variant={meta.tone} dot>{t(`status.${p.status}`)}</Badge>
                       <div className="muted num" style={{ fontSize: 12, marginTop: 3 }}>
-                        {p.weight ? `${p.weight} кг` : '—'}{p.delivery_price ? ` · $${p.delivery_price}` : ''}
+                        {p.weight ? `${p.weight} кг` : '—'}{p.delivery_price ? ` · ${money(p.delivery_price)}` : ''}
                       </div>
                     </div>
                   </div>

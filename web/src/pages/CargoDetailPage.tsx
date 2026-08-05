@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { money } from '../money';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError, get } from '../api';
 import { useI18n } from '../i18n';
@@ -35,7 +36,7 @@ type CargoInfo = {
   slug: string;
   phone: string;
   address: string;
-  price_per_kg_usd: number;
+  price_per_kg_kgs: number;
   is_active: boolean;
 };
 type Totals = {
@@ -160,7 +161,7 @@ export default function CargoDetailPage() {
     { label: t('cd.parcels'), value: tot?.parcels, tone: 'violet', icon: <IconBox size={19} /> },
     { label: t('cd.atWarehouse'), value: tot?.at_warehouse, tone: 'amber', icon: <IconWarehouse size={19} /> },
     { label: t('cd.issued'), value: tot?.issued, tone: 'green', icon: <IconIssue size={19} /> },
-    { label: t('cd.revenue'), value: tot ? `$${tot.revenue_issued.toFixed(2)}` : undefined, tone: 'green', icon: <IconRevenue size={19} /> },
+    { label: t('cd.revenue'), value: tot ? money(tot.revenue_issued) : undefined, tone: 'green', icon: <IconRevenue size={19} /> },
   ];
 
   const pickupCols: Column<PickupRow>[] = [
@@ -242,7 +243,7 @@ export default function CargoDetailPage() {
           data ? (
             <span className="cluster gap-sm">
               <span className="mono">{data.cargo.slug}</span>
-              <Badge variant="blue">{data.cargo.price_per_kg_usd.toFixed(2)} $/кг</Badge>
+              <Badge variant="blue">{money(data.cargo.price_per_kg_kgs)}/кг</Badge>
               <Badge variant={data.cargo.is_active ? 'ok' : 'warn'} dot>
                 {data.cargo.is_active ? t('common.active') : t('common.inactive')}
               </Badge>
@@ -380,7 +381,7 @@ function PickupParcelsModal({
     },
     { key: 'status', header: t('common.status'), render: (p) => <Badge variant={statusMeta(p.status).tone} dot>{t(`status.${p.status}`)}</Badge> },
     { key: 'weight', header: t('op.weightKg'), align: 'right', render: (p) => <span className="num">{p.weight ?? '—'}</span> },
-    { key: 'price', header: t('op.priceUsd'), align: 'right', render: (p) => <span className="num">{p.delivery_price ? `$${p.delivery_price}` : '—'}</span> },
+    { key: 'price', header: t('op.price'), align: 'right', render: (p) => <span className="num">{money(p.delivery_price)}</span> },
   ];
 
   return (
@@ -392,7 +393,7 @@ function PickupParcelsModal({
         <div className="cluster gap-sm" style={{ width: '100%' }}>
           <Badge variant="plain">{totals.count} {t('wh.pcs')}</Badge>
           <Badge variant="violet">{totals.weight.toFixed(2)} кг</Badge>
-          <Badge variant="green">${totals.price.toFixed(2)}</Badge>
+          <Badge variant="green">{money(totals.price)}</Badge>
           <span className="grow" />
           <Button variant="subtle" onClick={onClose}>{t('common.cancel')}</Button>
         </div>

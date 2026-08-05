@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get } from '../api';
 import { statusMeta } from '../status';
 import { IconClose, IconBox } from './Icons';
@@ -89,7 +90,7 @@ export default function ParcelDrawer({ parcel, onClose }: { parcel: Parcel; onCl
 
           <div className="detail-grid">
             <Cell k="Вес" v={parcel.weight ? `${parcel.weight} кг` : '—'} />
-            <Cell k="Стоимость доставки" v={parcel.delivery_price ? `$${parcel.delivery_price}` : '—'} />
+            <Cell k="Стоимость доставки" v={money(parcel.delivery_price)} />
             <Cell k="Клиент" v={parcel.client_name || '—'} />
             <Cell k="Код клиента" v={parcel.client_code || '—'} mono />
             <Cell k="Телефон" v={parcel.client_phone || '—'} mono />

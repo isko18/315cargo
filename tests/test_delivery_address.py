@@ -49,7 +49,42 @@ def test_only_superuser_can_edit(cargo_admin, superuser):
 
 
 @pytest.mark.django_db
-def test_client_code_embedded_in_recipient_and_one_line(auth_client, superuser_client):
+def test_cargo_code_goes_before_client_code(user, superuser_client):
+    """Код карго — общий для клиентов карго, стоит перед личным кодом клиента."""
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    superuser_client.put(
+        "/api/delivery-address/",
+        {
+            "recipient_name": "张伟",
+            "phone": "13250150777",
+            "province": "广东",
+            "city": "佛山",
+            "district": "南海",
+            "detail_address": "里水镇和顺鹤峰1号仓315库",
+            "postal_code": "528241",
+        },
+        format="json",
+    )
+    cargo = user.cargo
+    cargo.code = "x69610"
+    cargo.save()
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+
+    code = user.client_code
+    r = client.get("/api/delivery-address/")
+    assert r.status_code == 200
+    assert r.data["cargo_code"] == "x69610"
+    assert r.data["one_line"] == (
+        f"张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 {code} 528241"
+    )
+
+
+@pytest.mark.django_db
+def test_one_line_order_name_first_code_before_postal(auth_client, superuser_client):
     superuser_client.put(
         "/api/delivery-address/",
         {
@@ -58,7 +93,7 @@ def test_client_code_embedded_in_recipient_and_one_line(auth_client, superuser_c
             "province": "广东省",
             "city": "广州市",
             "district": "白云区",
-            "detail_address": "XX路 100号",
+            "detail_address": "XX路100号",
             "postal_code": "510000",
         },
         format="json",
@@ -66,10 +101,33 @@ def test_client_code_embedded_in_recipient_and_one_line(auth_client, superuser_c
     code = auth_client.user.client_code
     r = auth_client.get("/api/delivery-address/")
     assert r.status_code == 200
-    # 收货人 = ТОЛЬКО код клиента (без базового имени).
+    # 收货人 = ФИО; код клиента — в конце адреса, перед индексом.
+    assert r.data["recipient"] == "张伟"
+    assert r.data["one_line"] == (
+        f"张伟 +8613800138000 广东省广州市白云区 XX路100号 {code} 510000"
+    )
+
+
+@pytest.mark.django_db
+def test_code_not_duplicated_when_name_empty(auth_client, superuser_client):
+    """Без ФИО получателем становится код — второй раз его не добавляем."""
+    superuser_client.put(
+        "/api/delivery-address/",
+        {
+            "recipient_name": "",
+            "phone": "+8613800138000",
+            "province": "广东省",
+            "city": "",
+            "district": "",
+            "detail_address": "XX路100号",
+            "postal_code": "510000",
+        },
+        format="json",
+    )
+    code = auth_client.user.client_code
+    r = auth_client.get("/api/delivery-address/")
     assert r.data["recipient"] == code
-    assert r.data["one_line"].startswith(f"{code} ")
-    assert "张伟" not in r.data["one_line"]
+    assert r.data["one_line"] == f"{code} +8613800138000 广东省 XX路100号 510000"
 
 
 @pytest.mark.django_db

@@ -5,6 +5,7 @@ import { IconCheck, IconPin } from '../components/Icons';
 import { Alert, Button, Card, CardBody, CardHeader, Checkbox, Field, formError, Input, PageHeader } from '../ui';
 
 type AddressForm = {
+  recipient_name: string;
   phone: string;
   province: string;
   city: string;
@@ -16,6 +17,7 @@ type AddressForm = {
 };
 
 const EMPTY: AddressForm = {
+  recipient_name: '',
   phone: '',
   province: '',
   city: '',
@@ -26,8 +28,9 @@ const EMPTY: AddressForm = {
   is_active: true,
 };
 
-// Демо-код клиента для предпросмотра «строки для вставки» (реальный код
-// подставляется бэкендом каждому клиенту в приложении).
+// Демо-коды для предпросмотра «строки для вставки»: реальные подставляются
+// бэкендом — код карго берётся у карго клиента, личный код у самого клиента.
+const SAMPLE_CARGO_CODE = 'x69610';
 const SAMPLE_CODE = 'C1234567';
 
 export default function DeliveryAddressPage() {
@@ -42,6 +45,7 @@ export default function DeliveryAddressPage() {
     get('/api/delivery-address/')
       .then((d: any) =>
         setForm({
+          recipient_name: d.recipient_name ?? '',
           phone: d.phone ?? '',
           province: d.province ?? '',
           city: d.city ?? '',
@@ -60,10 +64,20 @@ export default function DeliveryAddressPage() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  // Живой предпросмотр строки для 智能填写. 收货人 = только код клиента.
+  // Живой предпросмотр строки для 智能填写:
+  // ФИО · телефон · 省市区 · детальный адрес · код карго · код клиента · индекс.
   const preview = useMemo(() => {
     const region = [form.province, form.city, form.district].map((s) => s.trim()).filter(Boolean).join('');
-    return [SAMPLE_CODE, form.phone.trim(), region, form.detail_address.trim(), form.postal_code.trim()]
+    const recipient = form.recipient_name.trim() || SAMPLE_CODE;
+    return [
+      recipient,
+      form.phone.trim(),
+      region,
+      form.detail_address.trim(),
+      SAMPLE_CARGO_CODE,
+      recipient === SAMPLE_CODE ? '' : SAMPLE_CODE, // без дубля, если ФИО не задано
+      form.postal_code.trim(),
+    ]
       .filter(Boolean)
       .join(' ');
   }, [form]);
@@ -77,6 +91,7 @@ export default function DeliveryAddressPage() {
       await api('/api/delivery-address/', {
         method: 'PUT',
         body: JSON.stringify({
+          recipient_name: form.recipient_name.trim(),
           phone: form.phone.trim(),
           province: form.province.trim(),
           city: form.city.trim(),
@@ -107,6 +122,14 @@ export default function DeliveryAddressPage() {
           <CardBody>
             <form id="daddr-form" onSubmit={save}>
               <Alert variant="info">{t('daddr.recipientAuto')}</Alert>
+              <Field label={t('daddr.recipient')} helper={t('daddr.recipientHint')} className="mt-md">
+                <Input
+                  value={form.recipient_name}
+                  onChange={(e) => set('recipient_name', e.target.value)}
+                  placeholder="张伟"
+                  disabled={loading}
+                />
+              </Field>
               <Field label={t('daddr.phone')} className="mt-md">
                 <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+86 138 0000 0000" disabled={loading} />
               </Field>
@@ -160,7 +183,8 @@ export default function DeliveryAddressPage() {
               <code>{preview || t('daddr.previewEmpty')}</code>
             </div>
             <p className="helper mt-md">
-              {t('daddr.previewNote')} <span className="mono">{SAMPLE_CODE}</span>
+              {t('daddr.previewNote')} <span className="mono">{SAMPLE_CARGO_CODE}</span>{' '}
+              <span className="mono">{SAMPLE_CODE}</span>
             </p>
           </CardBody>
         </Card>

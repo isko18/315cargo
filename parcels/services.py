@@ -45,8 +45,8 @@ STATUS_RANK[Parcel.Status.CANCELLED] = 999
 
 
 def calc_delivery_price(cargo, weight):
-    """Стоимость доставки = вес × тариф карго ($/кг). None если данных нет."""
-    rate = getattr(cargo, "price_per_kg_usd", None)
+    """Стоимость доставки = вес × тариф карго (сом/кг). None если данных нет."""
+    rate = getattr(cargo, "price_per_kg_kgs", None)
     if weight is None or not rate:
         return None
     return (Decimal(weight) * Decimal(rate)).quantize(Decimal("0.01"))
@@ -101,7 +101,7 @@ def scan_parcel(
     """Зарегистрировать посылку по трек-номеру (сканер, одно поле).
 
     Если передан ``weight`` — сохраняем вес и пересчитываем стоимость доставки
-    по тарифу карго (``price_per_kg_usd``).
+    по тарифу карго (``price_per_kg_kgs``).
 
     ``global_resolve=True`` — режим общего склада в Китае (оператор Китая один
     на все карго; ``cargo`` может быть ``None``). Карго определяется так:

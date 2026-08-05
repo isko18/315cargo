@@ -37,10 +37,36 @@ def validate_phone(phone):
 
 
 def generate_client_code(cargo):
-    while True:
-        code = "C" + "".join(random.choices(string.digits, k=7))
-        if not User.objects.filter(cargo=cargo, client_code=code).exists():
-            return code
+    """Следующий клиентский код карго: префикс карго + порядковый номер.
+
+    Нумерация сквозная и по возрастанию внутри карго («X0001», «X0002», …).
+    Счётчик живёт на карго и берётся под блокировкой строки, чтобы две
+    параллельные регистрации не получили один номер. Занятые номера (напр.
+    после ручной правки кода в админке) пропускаем.
+
+    Без карго (супер-владелец, служебные пользователи) — прежняя случайная
+    схема: сквозного счётчика там нет.
+    """
+    from django.db import transaction
+
+    from cargo.models import CargoCompany, DEFAULT_CLIENT_CODE_PREFIX
+
+    if cargo is None:
+        while True:
+            code = DEFAULT_CLIENT_CODE_PREFIX + "".join(random.choices(string.digits, k=7))
+            if not User.objects.filter(cargo=None, client_code=code).exists():
+                return code
+
+    cargo_id = getattr(cargo, "pk", cargo)
+    with transaction.atomic():
+        row = CargoCompany.objects.select_for_update().get(pk=cargo_id)
+        while True:
+            row.client_code_seq += 1
+            code = row.format_client_code(row.client_code_seq)
+            if not User.objects.filter(cargo_id=cargo_id, client_code=code).exists():
+                break
+        row.save(update_fields=("client_code_seq",))
+    return code
 
 
 def generate_qr_code(user):

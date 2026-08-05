@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { money } from '../money';
 import { ApiError, get, getRole, post } from '../api';
 import { useI18n } from '../i18n';
 import { IconHistory, IconSearch } from './Icons';
@@ -207,9 +208,9 @@ export default function OperationHistory({
     },
     {
       key: 'price',
-      header: t('op.priceUsd'),
+      header: t('op.price'),
       align: 'right',
-      render: (r) => <span className="num">{r.delivery_price ? `$${r.delivery_price}` : '—'}</span>,
+      render: (r) => <span className="num">{money(r.delivery_price)}</span>,
     },
     ...(isManager
       ? ([
@@ -246,7 +247,7 @@ export default function OperationHistory({
             <div className="cluster gap-sm">
               <Badge variant="plain">{totals.count} {t('wh.pcs')}</Badge>
               <Badge variant="violet">{totals.weight.toFixed(2)} кг</Badge>
-              <Badge variant="green">${totals.price.toFixed(2)}</Badge>
+              <Badge variant="green">{money(totals.price)}</Badge>
             </div>
           )
         }
