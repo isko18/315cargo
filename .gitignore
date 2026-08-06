@@ -179,3 +179,8 @@ graphify-out/
 
 # Node
 node_modules/
+
+# Firebase service account — секрет, только на сервере
+firebaseSDK.json
+firebase*.json
+*serviceaccount*.json

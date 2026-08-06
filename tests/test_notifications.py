@@ -6,7 +6,7 @@ from notifications.models import (
     NotificationPreference,
     NotificationType,
 )
-from notifications.services import notify, send_push_notification
+from notifications.services import notify, send_push_notification, unread_count
 from orders.models import Order
 from parcels.models import Parcel
 from tests.factories import OrderFactory, ParcelFactory
@@ -36,50 +36,139 @@ def test_parcel_status_change_creates_history_and_notification(user):
 
 
 @pytest.mark.django_db
-def test_push_payload_carries_type_and_ids(monkeypatch, user):
-    """Мобилка роутит tap по data['type'] — сервер обязан его класть."""
+def test_push_message_matches_mobile_contract(monkeypatch, user):
+    """Мобилка ждёт notification + data + канал Android + бейдж iOS."""
     DeviceToken.objects.create(
-        user=user, token="tok-1", platform=DeviceToken.Platform.ANDROID
+        user=user, token="tok-contract", platform=DeviceToken.Platform.ANDROID
     )
+    Notification.objects.filter(user=user).update(is_read=False)
     captured = {}
 
-    class FakeMessaging:
-        @staticmethod
-        def Notification(title, body):  # noqa: N802 — мок firebase_admin API
-            return (title, body)
+    def fake_multicast(**kwargs):
+        captured.update(kwargs)
+        return object()
 
-        @staticmethod
-        def MulticastMessage(tokens, notification, data):  # noqa: N802
-            captured.update(data)
-            return object()
+    def fake_send(message):
+        class _Resp:
+            responses = []
+            success_count = 1
+            failure_count = 0
 
-        @staticmethod
-        def send_each_for_multicast(message):
-            class _Resp:
-                responses = []
-                success_count = 1
-                failure_count = 0
+        return _Resp()
 
-            return _Resp()
+    from firebase_admin import messaging
 
     monkeypatch.setattr(
         "notifications.services._ensure_firebase_initialized", lambda: True
     )
-    monkeypatch.setitem(
-        __import__("sys").modules, "firebase_admin", type("M", (), {"messaging": FakeMessaging})
-    )
+    monkeypatch.setattr(messaging, "MulticastMessage", fake_multicast)
+    monkeypatch.setattr(messaging, "send_each_for_multicast", fake_send)
 
     send_push_notification(
         user,
         "Посылка в пути",
-        "Посылка TRACK1 выехала в Кыргызстан",
-        data={"parcel_id": 7, "status": "in_transit"},
+        "TRACK1 выехала в Кыргызстан",
+        data={"parcel_id": 7},
         type=NotificationType.PARCEL_STATUS_CHANGED,
     )
 
-    assert captured["type"] == NotificationType.PARCEL_STATUS_CHANGED
-    assert captured["parcel_id"] == "7"  # FCM принимает только строки
-    assert captured["status"] == "in_transit"
+    # data: только строки, type кладётся всегда — по нему мобилка роутит tap.
+    assert captured["data"]["type"] == NotificationType.PARCEL_STATUS_CHANGED
+    assert captured["data"]["parcel_id"] == "7"  # FCM не принимает числа
+    assert captured["notification"] is not None  # без него iOS молчит
+    assert captured["android"].priority == "high"  # иначе Doze тормозит доставку
+    assert captured["android"].notification.channel_id == "cargo315_default"
+    assert captured["apns"].headers["apns-priority"] == "10"
+    assert captured["apns"].payload.aps.badge == unread_count(user)
+
+
+@pytest.mark.django_db
+def test_only_dead_tokens_are_deactivated(monkeypatch, user):
+    """Временный сбой FCM не должен гасить рабочий токен."""
+    from firebase_admin import exceptions as fb_exceptions
+    from firebase_admin import messaging
+
+    DeviceToken.objects.filter(user=user).delete()
+    dead = DeviceToken.objects.create(
+        user=user, token="dead", platform=DeviceToken.Platform.ANDROID
+    )
+    flaky = DeviceToken.objects.create(
+        user=user, token="flaky", platform=DeviceToken.Platform.ANDROID
+    )
+
+    class _R:
+        def __init__(self, exc):
+            self.success = exc is None
+            self.exception = exc
+
+    def fake_send(message):
+        class _Resp:
+            # Порядок ответов совпадает с порядком токенов.
+            responses = [
+                _R(messaging.UnregisteredError("gone")),
+                _R(fb_exceptions.UnavailableError("try later", cause=None)),
+            ]
+            success_count = 0
+            failure_count = 2
+
+        return _Resp()
+
+    monkeypatch.setattr(
+        "notifications.services._ensure_firebase_initialized", lambda: True
+    )
+    monkeypatch.setattr(messaging, "send_each_for_multicast", fake_send)
+    monkeypatch.setattr(
+        "notifications.services._active_tokens", lambda u: ["dead", "flaky"]
+    )
+
+    send_push_notification(
+        user, "T", "B", type=NotificationType.PARCEL_STATUS_CHANGED
+    )
+
+    dead.refresh_from_db()
+    flaky.refresh_from_db()
+    assert dead.is_active is False
+    assert flaky.is_active is True
+
+
+@pytest.mark.django_db
+def test_unregister_device_token_on_logout(auth_client):
+    auth_client.post(
+        "/api/device-tokens/", {"token": "bye-1", "platform": "android"}, format="json"
+    )
+    assert DeviceToken.objects.filter(token="bye-1").exists()
+
+    response = auth_client.delete(
+        "/api/device-tokens/", {"token": "bye-1"}, format="json"
+    )
+    assert response.status_code == 204
+    assert not DeviceToken.objects.filter(token="bye-1").exists()
+
+    # Повторный выход не должен падать.
+    assert (
+        auth_client.delete(
+            "/api/device-tokens/", {"token": "bye-1"}, format="json"
+        ).status_code
+        == 204
+    )
+
+
+@pytest.mark.django_db
+def test_unregister_requires_token(auth_client):
+    response = auth_client.delete("/api/device-tokens/", {}, format="json")
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_unregister_does_not_touch_other_users_token(auth_client, staff_user):
+    DeviceToken.objects.create(
+        user=staff_user, token="not-mine", platform=DeviceToken.Platform.ANDROID
+    )
+    response = auth_client.delete(
+        "/api/device-tokens/", {"token": "not-mine"}, format="json"
+    )
+    assert response.status_code == 204
+    assert DeviceToken.objects.filter(token="not-mine").exists()
 
 
 @pytest.mark.django_db

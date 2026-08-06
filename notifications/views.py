@@ -69,6 +69,27 @@ class DeviceTokenViewSet(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @extend_schema(
+        tags=["notifications"],
+        request={"application/json": {"type": "object", "properties": {"token": {"type": "string"}}}},
+        responses={204: None},
+        description="Отвязать FCM-токен при выходе из аккаунта.",
+    )
+    def unregister(self, request):
+        """``DELETE /api/device-tokens/`` с телом ``{"token": "..."}``.
+
+        Клиент при выходе делает ``deleteToken()`` на стороне FCM; без этого
+        вызова сервер узнавал бы о мёртвом токене только по ошибке следующей
+        отправки. Удаляем только свои токены — чужой чужим выходом не отвязать.
+        """
+        token = (request.data or {}).get("token") or ""
+        token = token.strip()
+        if not token:
+            return Response({"token": "Обязательное поле"}, status=400)
+        DeviceToken.objects.filter(user=request.user, token=token).delete()
+        # 204 и когда токена уже нет: выход должен быть идемпотентным.
+        return Response(status=204)
+
 
 class NotificationPreferenceAPIView(APIView):
     permission_classes = (IsAuthenticated,)

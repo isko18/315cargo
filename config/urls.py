@@ -113,6 +113,16 @@ urlpatterns = [
     path("api/admin/overview/", AdminOverviewAPIView.as_view(), name="admin-overview"),
     path("api/delivery-address/", DeliveryAddressAPIView.as_view(), name="delivery-address"),
     path("api/clients/search/", ClientSearchAPIView.as_view(), name="clients-search"),
+    # DELETE на коллекции роутер не умеет, а мобилка отвязывает токен при
+    # выходе именно так. Маршрут объявлен до router.urls и повторяет его
+    # list/create, чтобы GET и POST остались прежними.
+    path(
+        "api/device-tokens/",
+        DeviceTokenViewSet.as_view(
+            {"get": "list", "post": "create", "delete": "unregister"}
+        ),
+        name="device-tokens-list",
+    ),
     path("api/", include(router.urls)),
 ]
 

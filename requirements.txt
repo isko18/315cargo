@@ -11,6 +11,7 @@ qrcode
 celery
 redis
 requests>=2.31
+firebase-admin>=6.5
 gunicorn
 whitenoise
 django-cors-headers

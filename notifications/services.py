@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 _firebase_lock = threading.Lock()
 _firebase_initialized = False
 
+# Канал Android создаётся приложением; шлём в него же, иначе на закрытом
+# приложении уведомление уходит в безымянную «Разное» без звука.
+ANDROID_CHANNEL_ID = "cargo315_default"
+
 
 def _ensure_firebase_initialized():
     global _firebase_initialized
@@ -65,10 +69,40 @@ def create_notification(user, title, body, type=NotificationType.SYSTEM, data=No
 
 
 def _active_tokens(user) -> list[str]:
+    """Все живые токены пользователя: телефон + планшет + переустановки."""
     return list(
         DeviceToken.objects.filter(user=user, is_active=True).values_list(
             "token", flat=True
         )
+    )
+
+
+def unread_count(user) -> int:
+    """Счётчик непрочитанных — им же красим бейдж на iOS (сам он не считает)."""
+    return Notification.objects.filter(user=user, is_read=False).count()
+
+
+def _token_is_dead(exc) -> bool:
+    """Токен мёртв навсегда или это временный сбой FCM?
+
+    Гасим только безнадёжные: приложение удалено, токен отозван (клиент делает
+    ``deleteToken()`` при выходе) или битый. Временные ошибки (UNAVAILABLE,
+    INTERNAL, превышение квоты) токен не портят — на них гасить нельзя, иначе
+    после каждого сбоя FCM пользователи молча перестают получать пуши.
+    """
+    if exc is None:
+        return False
+    from firebase_admin import exceptions as fb_exceptions
+    from firebase_admin import messaging
+
+    return isinstance(
+        exc,
+        (
+            messaging.UnregisteredError,
+            messaging.SenderIdMismatchError,
+            fb_exceptions.InvalidArgumentError,
+            fb_exceptions.NotFoundError,
+        ),
     )
 
 
@@ -113,24 +147,41 @@ def send_push_notification(
 
         message = messaging.MulticastMessage(
             tokens=tokens,
+            # Блок notification обязателен: только data-сообщения на закрытом
+            # iOS не показываются вообще.
             notification=messaging.Notification(title=title, body=body),
             data=payload,
+            android=messaging.AndroidConfig(
+                # Без HIGH доставку откладывает Doze на десятки минут.
+                priority="high",
+                notification=messaging.AndroidNotification(
+                    channel_id=ANDROID_CHANNEL_ID, sound="default"
+                ),
+            ),
+            apns=messaging.APNSConfig(
+                headers={"apns-priority": "10"},
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(sound="default", badge=unread_count(user))
+                ),
+            ),
         )
         response = messaging.send_each_for_multicast(message)
     except Exception as exc:
         logger.exception("FCM send failed: %s", exc)
         return False
 
-    invalid_tokens = []
+    dead_tokens = []
     for idx, resp in enumerate(response.responses):
-        if not resp.success:
-            invalid_tokens.append(tokens[idx])
-            logger.warning(
-                "FCM delivery failed",
-                extra={"token": tokens[idx], "error": str(resp.exception)},
-            )
-    if invalid_tokens:
-        DeviceToken.objects.filter(token__in=invalid_tokens).update(is_active=False)
+        if resp.success:
+            continue
+        logger.warning(
+            "FCM delivery failed",
+            extra={"token": tokens[idx], "error": str(resp.exception)},
+        )
+        if _token_is_dead(resp.exception):
+            dead_tokens.append(tokens[idx])
+    if dead_tokens:
+        DeviceToken.objects.filter(token__in=dead_tokens).update(is_active=False)
 
     logger.info(
         "FCM push sent",
