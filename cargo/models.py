@@ -21,6 +21,15 @@ class CargoCompany(models.Model):
             "в адресе доставки перед своим кодом."
         ),
     )
+    recipient_name = models.CharField(
+        _("ФИО получателя в Китае (收货人)"),
+        max_length=128,
+        blank=True,
+        help_text=_(
+            "Имя, которое клиенты этого карго ставят получателем в заказе на "
+            "маркетплейсе. У каждого карго свой человек на приёмке."
+        ),
+    )
     description = models.TextField(_("Описание"), blank=True)
     logo = models.ImageField(_("Логотип"), upload_to="cargo_logos/", null=True, blank=True)
     phone = models.CharField(_("Телефон"), max_length=32, blank=True)

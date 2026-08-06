@@ -95,6 +95,52 @@ def test_cargo_code_set_on_create_and_must_be_unique(superuser_client):
 
 
 @pytest.mark.django_db
+def test_super_owner_sets_recipient_name_on_create(superuser_client):
+    """ФИО получателя в Китае задаётся при создании карго."""
+    r = superuser_client.post(
+        "/api/admin/cargos/",
+        {
+            "title": "Карго ФИО",
+            "slug": "cargo-recipient",
+            "recipient_name": "张伟",
+            "owner_name": "Владелец",
+            "owner_phone": "+996700123160",
+            "owner_password": "ownerpw1",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+    assert r.data["cargo"]["recipient_name"] == "张伟"
+    assert CargoCompany.objects.get(slug="cargo-recipient").recipient_name == "张伟"
+
+
+@pytest.mark.django_db
+def test_recipient_name_editable_by_super_only(superuser, cargo_admin, cargo):
+    # Отдельные клиенты: фикстуры *_client делят один api_client и затирают креды.
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    def client_for(u):
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(u).access_token}")
+        return c
+
+    r = client_for(superuser).patch(
+        f"/api/admin/cargos/{cargo_admin.cargo_id}/", {"recipient_name": "李娜"}, format="json"
+    )
+    assert r.status_code == 200, r.data
+
+    # Владелец карго видит ФИО, но менять не может (назначает супер-владелец).
+    owner = client_for(cargo_admin)
+    r = owner.get("/api/manage/cargo/")
+    assert r.data["recipient_name"] == "李娜"
+    owner.patch("/api/manage/cargo/", {"recipient_name": "подмена"}, format="json")
+
+    cargo_admin.cargo.refresh_from_db()
+    assert cargo_admin.cargo.recipient_name == "李娜"
+
+
+@pytest.mark.django_db
 def test_cargo_code_optional_and_editable(superuser_client, cargo):
     """Без кода карго создаётся (NULL), несколько таких не конфликтуют."""
     for i, slug in enumerate(("no-code-a", "no-code-b")):

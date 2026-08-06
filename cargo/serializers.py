@@ -23,6 +23,7 @@ def invite_qr_data_uri(url: str) -> str:
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
 
+
 CARGO_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
 # Префикс кода клиента: латиница/кириллица и цифры, 1–6 символов («X», «КК», «KG1»).
 CLIENT_CODE_PREFIX_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9]{1,6}$")
@@ -96,6 +97,7 @@ class CargoCompanySerializer(serializers.ModelSerializer):
             "title",
             "slug",
             "code",
+            "recipient_name",
             "description",
             "logo",
             "phone",
@@ -126,6 +128,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "title",
             "slug",
             "code",
+            "recipient_name",
             "description",
             "logo",
             "phone",
@@ -146,6 +149,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "id",
             "slug",
             "code",
+            "recipient_name",
             "client_code_seq",
             "is_active",
             "created_at",
@@ -198,6 +202,7 @@ class AdminCargoSerializer(serializers.ModelSerializer):
             "title",
             "slug",
             "code",
+            "recipient_name",
             "phone",
             "address",
             "price_per_kg_kgs",
@@ -238,6 +243,9 @@ class AdminCreateCargoSerializer(serializers.Serializer):
         max_length=32, required=False, allow_blank=True, allow_null=True, default=""
     )
     client_code_prefix = serializers.CharField(max_length=6, required=False)
+    recipient_name = serializers.CharField(
+        max_length=128, required=False, allow_blank=True, default=""
+    )
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
     address = serializers.CharField(required=False, allow_blank=True, default="")
     price_per_kg_kgs = serializers.DecimalField(
@@ -278,6 +286,7 @@ class AdminCreateCargoSerializer(serializers.Serializer):
                 title=validated_data["title"],
                 slug=validated_data["slug"],
                 code=validated_data.get("code") or None,
+                recipient_name=validated_data.get("recipient_name", ""),
                 phone=validated_data.get("phone", ""),
                 address=validated_data.get("address", ""),
                 price_per_kg_kgs=validated_data.get("price_per_kg_kgs", 0),

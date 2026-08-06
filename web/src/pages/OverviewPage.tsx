@@ -52,6 +52,7 @@ const EMPTY = {
   title: '',
   slug: '',
   code: '',
+  recipient_name: '',
   client_code_prefix: '',
   phone: '',
   address: '',
@@ -157,6 +158,7 @@ export default function OverviewPage() {
         title: c.title ?? '',
         slug: c.slug ?? '',
         code: c.code ?? '',
+        recipient_name: c.recipient_name ?? '',
         client_code_prefix: c.client_code_prefix ?? '',
         phone: c.phone ?? '',
         address: c.address ?? '',
@@ -194,6 +196,7 @@ export default function OverviewPage() {
         const body: Record<string, unknown> = {
           title: form.title.trim(),
           code: form.code.trim(),
+          recipient_name: form.recipient_name.trim(),
           phone: form.phone.trim(),
           ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
@@ -207,6 +210,7 @@ export default function OverviewPage() {
           title: form.title.trim(),
           slug: form.slug.trim() || autoSlug(form.title) || `cargo-${Date.now().toString(36)}`,
           code: form.code.trim(),
+          recipient_name: form.recipient_name.trim(),
           phone: form.phone.trim(),
           ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
@@ -428,6 +432,18 @@ export default function OverviewPage() {
                 placeholder="x69610"
                 autoComplete="off"
                 invalid={codeBad}
+              />
+            </Field>
+            <Field
+              label={t('ov.recipient')}
+              helper={t('ov.recipientHint')}
+              className="mt-md"
+              style={{ maxWidth: 340 }}
+            >
+              <Input
+                value={form.recipient_name}
+                onChange={(e) => set('recipient_name', e.target.value)}
+                placeholder="张伟"
               />
             </Field>
             <div className="grid-2 mt-md">

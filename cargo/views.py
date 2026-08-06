@@ -409,6 +409,7 @@ class AdminCargoViewSet(ModelViewSet):
                     "title": cargo.title,
                     "slug": cargo.slug,
                     "code": cargo.code,
+                    "recipient_name": cargo.recipient_name,
                     "phone": cargo.phone,
                     "address": cargo.address,
                     "price_per_kg_kgs": float(cargo.price_per_kg_kgs),

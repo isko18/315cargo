@@ -49,6 +49,62 @@ def test_only_superuser_can_edit(cargo_admin, superuser):
 
 
 @pytest.mark.django_db
+def test_recipient_comes_from_client_cargo(user, superuser_client):
+    """У каждого карго свой человек на приёмке — ФИО берётся из карго клиента."""
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    superuser_client.put(
+        "/api/delivery-address/",
+        {
+            "recipient_name": "Общий Запасной",
+            "phone": "13250150777",
+            "province": "广东",
+            "detail_address": "里水镇和顺鹤峰1号仓315库",
+            "postal_code": "528241",
+        },
+        format="json",
+    )
+    cargo = user.cargo
+    cargo.recipient_name = "张伟"
+    cargo.code = "x69610"
+    cargo.save()
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+    r = client.get("/api/delivery-address/")
+
+    assert r.status_code == 200
+    assert r.data["recipient"] == "张伟"  # не «Общий Запасной»
+    assert r.data["one_line"].startswith("张伟 ")
+
+
+@pytest.mark.django_db
+def test_global_recipient_is_fallback_when_cargo_has_none(user, superuser_client):
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    superuser_client.put(
+        "/api/delivery-address/",
+        {
+            "recipient_name": "Общий Запасной",
+            "phone": "13250150777",
+            "province": "广东",
+            "detail_address": "里水镇",
+            "postal_code": "528241",
+        },
+        format="json",
+    )
+    assert user.cargo.recipient_name == ""  # у карго ФИО не задано
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+    r = client.get("/api/delivery-address/")
+
+    assert r.data["recipient"] == "Общий Запасной"
+
+
+@pytest.mark.django_db
 def test_cargo_code_goes_before_client_code(user, superuser_client):
     """Код карго — общий для клиентов карго, стоит перед личным кодом клиента."""
     from rest_framework.test import APIClient

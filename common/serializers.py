@@ -43,10 +43,16 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
         user = getattr(self.context.get("request"), "user", None)
         return getattr(user, "client_code", "") or ""
 
-    def _cargo_code(self):
+    def _cargo(self):
         user = getattr(self.context.get("request"), "user", None)
-        cargo = getattr(user, "cargo", None)
-        return getattr(cargo, "code", "") or ""
+        return getattr(user, "cargo", None)
+
+    def _cargo_code(self):
+        return getattr(self._cargo(), "code", "") or ""
+
+    def _cargo_recipient(self):
+        """ФИО получателя карго клиента — у каждого карго свой человек в Китае."""
+        return getattr(self._cargo(), "recipient_name", "") or ""
 
     def get_client_code(self, obj):
         return self._client_code()
@@ -55,7 +61,9 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
         return self._cargo_code()
 
     def get_recipient(self, obj):
-        return obj.recipient_for(self._client_code())
+        return obj.recipient_for(self._client_code(), self._cargo_recipient())
 
     def get_one_line(self, obj):
-        return obj.one_line(self._client_code(), self._cargo_code())
+        return obj.one_line(
+            self._client_code(), self._cargo_code(), self._cargo_recipient()
+        )

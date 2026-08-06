@@ -67,10 +67,13 @@ class DeliveryAddress(models.Model):
     """
 
     recipient_name = models.CharField(
-        _("ФИО получателя (收货人)"),
+        _("ФИО получателя по умолчанию (收货人)"),
         max_length=128,
         blank=True,
-        help_text=_("Имя получателя на складе. Код клиента идёт в конец адреса, перед индексом."),
+        help_text=_(
+            "Запасное имя получателя. Основное задаётся у каждого карго отдельно "
+            "— у них разные люди на приёмке в Китае."
+        ),
     )
     phone = models.CharField(_("Телефон (手机号)"), max_length=32, blank=True)
     province = models.CharField(_("Провинция (省)"), max_length=64, blank=True)
@@ -111,26 +114,31 @@ class DeliveryAddress(models.Model):
     def __str__(self):
         return _("Адрес доставки (Китай)")
 
-    def recipient_for(self, client_code=None):
-        """Имя получателя (收货人) = ФИО получателя на складе.
+    def recipient_for(self, client_code=None, cargo_recipient=None):
+        """Имя получателя (收货人) на складе.
 
-        Код клиента в имя больше не идёт — он уходит в конец адреса, перед
-        индексом. Если ФИО не заполнено, подставляем код: коробку всё равно
-        нужно уметь опознать.
+        У каждого карго свой человек на приёмке, поэтому приоритет — ФИО из
+        карго клиента; поле здесь остаётся общим запасным. Если не задано ни
+        то, ни другое, подставляем код клиента: коробку всё равно нужно уметь
+        опознать.
         """
-        return (self.recipient_name or "").strip() or (client_code or "").strip()
+        return (
+            (cargo_recipient or "").strip()
+            or (self.recipient_name or "").strip()
+            or (client_code or "").strip()
+        )
 
     def region_line(self):
         """省市区 одной строкой (как ожидает умное распознавание PDD)."""
         return "".join(p for p in (self.province, self.city, self.district) if p)
 
-    def one_line(self, client_code=None, cargo_code=None):
+    def one_line(self, client_code=None, cargo_code=None, cargo_recipient=None):
         """Готовая строка для вставки в PDD (智能填写).
 
         Порядок: ФИО, телефон, 省市区, детальный адрес, код карго, код клиента,
-        индекс. Код карго — общий для всех клиентов одного карго-центра.
+        индекс. ФИО и код карго берутся из карго клиента.
         """
-        recipient = self.recipient_for(client_code)
+        recipient = self.recipient_for(client_code, cargo_recipient)
         code = (client_code or "").strip()
         parts = [
             recipient,
