@@ -25,8 +25,11 @@ def invite_qr_data_uri(url: str) -> str:
 
 
 CARGO_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
-# Префикс кода клиента: латиница/кириллица и цифры, 1–6 символов («X», «КК», «KG1»).
-CLIENT_CODE_PREFIX_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9]{1,6}$")
+# Префикс кода клиента: до 10 любых символов без пробелов — латиница, кириллица,
+# иероглифы, тире («X», «КК-», «仓», «KG-1»). Пробел запрещён намеренно: адрес для
+# PDD собирается в одну строку через пробелы, и префикс с пробелом её ломает.
+CLIENT_CODE_PREFIX_MAX = 10
+CLIENT_CODE_PREFIX_RE = re.compile(r"^\S{1,%d}$" % CLIENT_CODE_PREFIX_MAX)
 
 
 def normalize_client_code_prefix(value, instance=None):
@@ -40,7 +43,7 @@ def normalize_client_code_prefix(value, instance=None):
         raise serializers.ValidationError("Префикс не может быть пустым")
     if not CLIENT_CODE_PREFIX_RE.match(prefix):
         raise serializers.ValidationError(
-            "Префикс: 1–6 символов, только буквы и цифры, без пробелов"
+            f"Префикс: 1–{CLIENT_CODE_PREFIX_MAX} символов без пробелов"
         )
     qs = CargoCompany.objects.filter(client_code_prefix__iexact=prefix)
     if instance is not None and instance.pk:
@@ -242,7 +245,9 @@ class AdminCreateCargoSerializer(serializers.Serializer):
     code = serializers.CharField(
         max_length=32, required=False, allow_blank=True, allow_null=True, default=""
     )
-    client_code_prefix = serializers.CharField(max_length=6, required=False)
+    client_code_prefix = serializers.CharField(
+        max_length=CLIENT_CODE_PREFIX_MAX, required=False
+    )
     recipient_name = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )

@@ -31,7 +31,9 @@ type MyCargo = {
 
 // Ширина номера в клиентском коде — зеркалит CLIENT_CODE_DIGITS на бэкенде.
 const CODE_DIGITS = 4;
-const PREFIX_RE = /^[A-Za-zА-Яа-яЁё0-9]{1,6}$/;
+// Зеркалит CLIENT_CODE_PREFIX_RE на бэкенде: до 10 любых символов без пробелов
+// (латиница, кириллица, иероглифы, тире). Пробел ломает строку адреса для PDD.
+const PREFIX_RE = /^\S{1,10}$/u;
 
 const pad = (n: number) => String(n).padStart(CODE_DIGITS, '0');
 

@@ -176,9 +176,10 @@ export default function OverviewPage() {
   const pwdShort = form.owner_password.length > 0 && form.owner_password.length < 6;
   // Код карго необязателен, но если задан — только латиница/цифры/«-»/«_», 2–32.
   const codeBad = form.code.trim().length > 0 && !/^[A-Za-z0-9_-]{2,32}$/.test(form.code.trim());
-  // Префикс клиентского кода: буквы/цифры, 1–6. Пусто — бэкенд подберёт сам.
+  // Префикс клиентского кода: до 10 любых символов без пробелов (иероглифы, тире
+  // — тоже можно). Пусто — бэкенд подберёт свободный сам.
   const prefixRaw = form.client_code_prefix.trim();
-  const prefixBad = prefixRaw.length > 0 && !/^[A-Za-zА-Яа-яЁё0-9]{1,6}$/.test(prefixRaw);
+  const prefixBad = prefixRaw.length > 0 && !/^\S{1,10}$/u.test(prefixRaw);
   const prefixPreview = !prefixBad && prefixRaw ? `${prefixRaw}0001` : undefined;
   const cargoValid = Boolean(form.title.trim()) && !codeBad && !prefixBad;
   const canSubmit = editId

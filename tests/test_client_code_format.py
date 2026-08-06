@@ -60,6 +60,33 @@ def test_prefix_may_be_multiletter_and_is_per_cargo():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "prefix,expected",
+    [
+        ("КК-", "КК-0001"),      # тире
+        ("仓", "仓0001"),          # иероглиф
+        ("KG-1", "KG-10001"),    # смесь с тире
+        ("ЮГ.КАРГО.", "ЮГ.КАРГО.0001"),  # ровно 10 символов
+        ("#1", "#10001"),        # спецсимвол
+    ],
+)
+def test_prefix_allows_dashes_hieroglyphs_and_10_chars(prefix, expected):
+    cargo = CargoCompanyFactory(client_code_prefix=prefix)
+    assert UserFactory(cargo=cargo).client_code == expected
+
+
+@pytest.mark.django_db
+def test_prefix_of_ten_chars_accepted_via_api(cargo_admin_client, cargo):
+    r = cargo_admin_client.patch(
+        "/api/manage/cargo/", {"client_code_prefix": "仓库-315КГ"}, format="json"
+    )
+    assert r.status_code == 200, r.data
+    assert r.data["client_code_prefix"] == "仓库-315КГ"
+    cargo.refresh_from_db()
+    assert cargo.next_client_code().startswith("仓库-315КГ")
+
+
+@pytest.mark.django_db
 def test_prefix_change_does_not_touch_issued_codes(cargo):
     cargo.client_code_prefix = "A"
     cargo.save()
@@ -108,7 +135,7 @@ def test_owner_can_change_prefix_and_see_preview(cargo_admin_client, cargo):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("bad", ["", "  ", "X Y", "X-1", "TOOLONGG"])
+@pytest.mark.parametrize("bad", ["", "   ", "X Y", "СЛИШКОМДЛИННЫЙ"])
 def test_bad_prefix_rejected(cargo_admin_client, bad):
     r = cargo_admin_client.patch(
         "/api/manage/cargo/", {"client_code_prefix": bad}, format="json"
