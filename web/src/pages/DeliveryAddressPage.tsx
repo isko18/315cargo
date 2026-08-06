@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError, get, api } from '../api';
 import { useI18n } from '../i18n';
+import { buildAddressLine } from '../address';
 import { IconCheck, IconPin } from '../components/Icons';
 import { Alert, Button, Card, CardBody, CardHeader, Checkbox, Field, formError, Input, PageHeader } from '../ui';
 
@@ -64,23 +65,16 @@ export default function DeliveryAddressPage() {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  // Живой предпросмотр строки для 智能填写:
-  // ФИО · телефон · 省市区 · детальный адрес · код карго · код клиента · индекс.
-  const preview = useMemo(() => {
-    const region = [form.province, form.city, form.district].map((s) => s.trim()).filter(Boolean).join('');
-    const recipient = form.recipient_name.trim() || SAMPLE_CODE;
-    return [
-      recipient,
-      form.phone.trim(),
-      region,
-      form.detail_address.trim(),
-      SAMPLE_CARGO_CODE,
-      recipient === SAMPLE_CODE ? '' : SAMPLE_CODE, // без дубля, если ФИО не задано
-      form.postal_code.trim(),
-    ]
-      .filter(Boolean)
-      .join(' ');
-  }, [form]);
+  // Живой предпросмотр строки для 智能填写. Сборка — в общем модуле, чтобы
+  // здесь и в карточке карго строка собиралась одинаково.
+  const preview = useMemo(
+    () =>
+      buildAddressLine(form, {
+        cargoCode: SAMPLE_CARGO_CODE,
+        clientCode: SAMPLE_CODE,
+      }),
+    [form],
+  );
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

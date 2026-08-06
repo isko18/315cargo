@@ -4,6 +4,8 @@ import { ApiError, get, patch, post } from '../api';
 import { IconOverview, IconBox, IconStaff, IconTruck, IconAlert, IconPlus, IconCheck } from '../components/Icons';
 import { useI18n } from '../i18n';
 import InviteLink from '../components/InviteLink';
+import CopyBox from '../components/CopyBox';
+import { buildAddressLine, type AddressParts } from '../address';
 import type { Tone } from '../status';
 import {
   Alert,
@@ -98,6 +100,8 @@ export default function OverviewPage() {
 
   // Ссылка-приглашение редактируемого карго (приходит с бэкенда вместе с QR).
   const [invite, setInvite] = useState<{ url: string; qr: string } | null>(null);
+  // Общий адрес склада в Китае — из него собирается предпросмотр для карго.
+  const [address, setAddress] = useState<(AddressParts & { is_active?: boolean }) | null>(null);
   // Сброс пароля владельца (в режиме редактирования).
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
   const [ownerId, setOwnerId] = useState('');
@@ -122,6 +126,10 @@ export default function OverviewPage() {
 
   useEffect(() => {
     reload();
+    // Адрес склада один на платформу — тянем разово для предпросмотра.
+    get<AddressParts & { is_active: boolean }>('/api/delivery-address/')
+      .then(setAddress)
+      .catch(() => setAddress(null));
   }, []);
 
   function set<K extends keyof typeof form>(k: K, v: string | boolean) {
@@ -182,6 +190,17 @@ export default function OverviewPage() {
   const prefixBad = prefixRaw.length > 0 && !/^\S{1,10}$/u.test(prefixRaw);
   const prefixPreview = !prefixBad && prefixRaw ? `${prefixRaw}0001` : undefined;
   const cargoValid = Boolean(form.title.trim()) && !codeBad && !prefixBad;
+
+  // Предпросмотр адреса: собираем из общего адреса склада и полей этой формы,
+  // поэтому строка меняется прямо во время правки ФИО и кодов.
+  const sampleClientCode = `${prefixRaw || form.client_code_prefix || 'C'}0001`;
+  const addressPreview = address
+    ? buildAddressLine(address, {
+        recipient: form.recipient_name,
+        cargoCode: form.code,
+        clientCode: sampleClientCode,
+      })
+    : '';
   const canSubmit = editId
     ? Boolean(cargoValid)
     : Boolean(cargoValid && form.owner_name.trim() && form.owner_phone.trim() && form.owner_password.length >= 6);
@@ -467,6 +486,21 @@ export default function OverviewPage() {
             <Field label={t('ov.address')} className="mt-md">
               <Input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Ош, ул. ..." />
             </Field>
+
+            <div className="section-title" style={{ margin: '22px 0 12px' }}>{t('ov.addrPreview')}</div>
+            {address ? (
+              <>
+                <CopyBox text={addressPreview} label={t('ov.addrCopy')} />
+                <p className="helper mt-sm">
+                  {t('ov.addrPreviewHint')} <span className="mono">{sampleClientCode}</span>
+                </p>
+                {address.is_active === false && (
+                  <Alert variant="info">{t('ov.addrInactive')}</Alert>
+                )}
+              </>
+            ) : (
+              <p className="helper">{t('ov.addrMissing')}</p>
+            )}
 
             {editId ? (
               <>
