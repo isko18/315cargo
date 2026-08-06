@@ -75,7 +75,10 @@ class PinduoduoIntegrationViewSet(GenericViewSet):
     @action(detail=False, methods=("post",), url_path="session-expired")
     def session_expired(self, request):
         """Приложение сообщает, что WebView запросил повторный вход в PDD."""
-        account = self.get_service().mark_session_expired(request=request)
+        reason = (request.data or {}).get("reason") or ""
+        account = self.get_service().mark_session_expired(
+            reason=str(reason), request=request
+        )
         return Response(PinduoduoAccountSerializer(account).data)
 
     @extend_schema(request=PinduoduoWebhookSerializer, responses={200: dict})

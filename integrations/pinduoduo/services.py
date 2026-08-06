@@ -105,6 +105,10 @@ class PinduoduoSyncService:
 
     def connect(self, session_data: dict | None = None, *, request=None):
         self.account.is_connected = True
+        # Точка отсчёта жизни сессии: по ней считаем, сколько она продержалась.
+        self.account.session_started_at = timezone.now()
+        self.account.session_expired_at = None
+        self.account.last_expire_reason = ""
         if not self.account.external_user_id:
             self.account.external_user_id = (session_data or {}).get(
                 "external_user_id", f"pdd-{self.user.id}"
@@ -117,6 +121,9 @@ class PinduoduoSyncService:
                 "external_user_id",
                 "session_data",
                 "last_sync_error",
+                "session_started_at",
+                "session_expired_at",
+                "last_expire_reason",
                 "updated_at",
             )
         )
@@ -322,12 +329,37 @@ class PinduoduoSyncService:
         result.message = "ok"
         return result
 
-    def mark_session_expired(self, *, request=None):
-        """Помечает аккаунт как требующий повторного входа и уведомляет клиента."""
+    def mark_session_expired(self, *, reason: str = "", request=None):
+        """Помечает аккаунт как требующий повторного входа и уведомляет клиента.
+
+        Пишем момент и причину: сессия PDD живёт в WebView приложения, и без
+        этих отметок нельзя отличить «клиент открыл офиц. приложение PDD» от
+        «куки не пережили перезапуск» или «аккаунт забанили».
+        """
+        now = timezone.now()
+        started = self.account.session_started_at
+        lifetime_min = round((now - started).total_seconds() / 60, 1) if started else None
+
         self.account.is_connected = False
         self.account.last_sync_error = "Сессия Pinduoduo истекла"
+        self.account.session_expired_at = now
+        self.account.last_expire_reason = (reason or "")[:64]
         self.account.save(
-            update_fields=("is_connected", "last_sync_error", "updated_at")
+            update_fields=(
+                "is_connected",
+                "last_sync_error",
+                "session_expired_at",
+                "last_expire_reason",
+                "updated_at",
+            )
+        )
+        log_audit(
+            AuditLog.Action.PINDUODUO_SESSION_EXPIRED,
+            actor=self.user,
+            target_user=self.user,
+            description=f"Сессия прожила {lifetime_min} мин" if lifetime_min is not None else "",
+            metadata={"reason": reason or "unknown", "lifetime_minutes": lifetime_min},
+            request=request,
         )
         notify(
             self.user,

@@ -19,6 +19,10 @@ class AuditLog(models.Model):
         PINDUODUO_CONNECTED = "pinduoduo_connected", _("Подключение Pinduoduo")
         PINDUODUO_DISCONNECTED = "pinduoduo_disconnected", _("Отключение Pinduoduo")
         PINDUODUO_SYNCED = "pinduoduo_synced", _("Синхронизация Pinduoduo")
+        PINDUODUO_SESSION_EXPIRED = (
+            "pinduoduo_session_expired",
+            _("Сессия Pinduoduo истекла"),
+        )
         ADMIN_ACTION = "admin_action", _("Действие администратора")
 
     actor = models.ForeignKey(

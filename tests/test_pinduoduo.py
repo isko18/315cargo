@@ -263,6 +263,71 @@ def test_session_expired_marks_account_and_notifies(auth_client):
 
 
 @pytest.mark.django_db
+def test_session_lifetime_and_reason_are_recorded(auth_client):
+    """Без замера нельзя понять, почему сессии PDD живут по 20 минут."""
+    from common.models import AuditLog
+    from integrations.models import PinduoduoAccount
+
+    auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
+    account = PinduoduoAccount.objects.get(user=auth_client.user)
+    assert account.session_started_at is not None
+    assert account.session_expired_at is None
+
+    auth_client.post(
+        "/api/integrations/pinduoduo/session-expired/",
+        {"reason": "login_redirect"},
+        format="json",
+    )
+    account.refresh_from_db()
+    assert account.session_expired_at is not None
+    assert account.last_expire_reason == "login_redirect"
+    assert account.session_lifetime() is not None
+
+    entry = AuditLog.objects.filter(
+        action=AuditLog.Action.PINDUODUO_SESSION_EXPIRED, target_user=auth_client.user
+    ).first()
+    assert entry is not None
+    assert entry.metadata["reason"] == "login_redirect"
+    assert entry.metadata["lifetime_minutes"] is not None
+
+
+@pytest.mark.django_db
+def test_reconnect_resets_session_clock(auth_client):
+    from integrations.models import PinduoduoAccount
+
+    auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
+    auth_client.post(
+        "/api/integrations/pinduoduo/session-expired/", {"reason": "banned"}, format="json"
+    )
+    auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
+
+    account = PinduoduoAccount.objects.get(user=auth_client.user)
+    # Новая сессия — старые отметки не должны портить следующий замер.
+    assert account.session_expired_at is None
+    assert account.last_expire_reason == ""
+    assert account.session_lifetime() is None
+
+
+@pytest.mark.django_db
+def test_session_stats_command_runs(auth_client):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
+    auth_client.post(
+        "/api/integrations/pinduoduo/session-expired/",
+        {"reason": "login_redirect"},
+        format="json",
+    )
+    out = StringIO()
+    call_command("pdd_session_stats", stdout=out)
+    text = out.getvalue()
+    assert "Разлогины" in text
+    assert "login_redirect" in text
+
+
+@pytest.mark.django_db
 def test_webhook_requires_admin(auth_client):
     response = auth_client.post(
         "/api/integrations/pinduoduo/webhook/",

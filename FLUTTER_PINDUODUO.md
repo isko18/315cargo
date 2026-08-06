@@ -47,6 +47,20 @@ WebView (реальное устройство, клиент залогинен 
 | POST | `/api/integrations/pinduoduo/connect/` | Пометить аккаунт подключённым (после успешного логина в WebView) |
 | POST | `/api/integrations/pinduoduo/ingest/` | Прислать перехваченные заказы |
 | POST | `/api/integrations/pinduoduo/session-expired/` | Сообщить, что нужен повторный вход |
+
+> **Новое: у `/session-expired/` появился параметр `reason`** — шлите его всегда,
+> иначе причину коротких сессий не отличить от бана:
+>
+> ```jsonc
+> POST /api/integrations/pinduoduo/session-expired/
+> { "reason": "login_redirect" }   // редирект на страницу логина
+> { "reason": "no_cookies" }       // после restore() cookies пустые/протухли
+> { "reason": "banned" }           // PDD показал блокировку/капчу
+> { "reason": "manual_logout" }    // клиент сам вышел
+> ```
+>
+> Сервер записывает момент разлогина и **сколько прожила сессия**; статистика —
+> `manage.py pdd_session_stats [--days N]`.
 | GET | `/api/integrations/pinduoduo/status/` | Статус подключения |
 
 **Тело `/ingest/`** — массив заказов в нормализованном виде:
