@@ -55,6 +55,7 @@ const EMPTY = {
   slug: '',
   code: '',
   recipient_name: '',
+  address_suffix: '',
   client_code_prefix: '',
   phone: '',
   address: '',
@@ -167,6 +168,7 @@ export default function OverviewPage() {
         slug: c.slug ?? '',
         code: c.code ?? '',
         recipient_name: c.recipient_name ?? '',
+        address_suffix: c.address_suffix ?? '',
         client_code_prefix: c.client_code_prefix ?? '',
         phone: c.phone ?? '',
         address: c.address ?? '',
@@ -197,6 +199,7 @@ export default function OverviewPage() {
   const addressPreview = address
     ? buildAddressLine(address, {
         recipient: form.recipient_name,
+        addressSuffix: form.address_suffix,
         cargoCode: form.code,
         clientCode: sampleClientCode,
       })
@@ -217,6 +220,7 @@ export default function OverviewPage() {
           title: form.title.trim(),
           code: form.code.trim(),
           recipient_name: form.recipient_name.trim(),
+          address_suffix: form.address_suffix.trim(),
           phone: form.phone.trim(),
           ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
@@ -231,6 +235,7 @@ export default function OverviewPage() {
           slug: form.slug.trim() || autoSlug(form.title) || `cargo-${Date.now().toString(36)}`,
           code: form.code.trim(),
           recipient_name: form.recipient_name.trim(),
+          address_suffix: form.address_suffix.trim(),
           phone: form.phone.trim(),
           ...(prefixRaw ? { client_code_prefix: prefixRaw } : {}),
           address: form.address.trim(),
@@ -464,6 +469,19 @@ export default function OverviewPage() {
                 value={form.recipient_name}
                 onChange={(e) => set('recipient_name', e.target.value)}
                 placeholder="张伟"
+              />
+            </Field>
+            <Field
+              label={t('ov.addrSuffix')}
+              helper={t('ov.addrSuffixHint')}
+              className="mt-md"
+              style={{ maxWidth: 200 }}
+            >
+              <Input
+                value={form.address_suffix}
+                onChange={(e) => set('address_suffix', e.target.value)}
+                placeholder="东"
+                autoComplete="off"
               />
             </Field>
             <div className="grid-2 mt-md">

@@ -3,7 +3,8 @@
  *
  * Зеркалит DeliveryAddress.one_line на бэкенде — одна точка правды на фронте,
  * чтобы предпросмотр на «Адресе доставки» и в карточке карго не разъезжались.
- * Порядок: ФИО, телефон, 省市区, детальный адрес, код карго, код клиента, индекс.
+ * Порядок: ФИО, телефон, 省市区, детальный адрес (с припиской карго), код карго,
+ * код клиента. Индекса нет: маркетплейс подставляет его сам по 省市区.
  */
 
 export type AddressParts = {
@@ -13,7 +14,6 @@ export type AddressParts = {
   city?: string | null;
   district?: string | null;
   detail_address?: string | null;
-  postal_code?: string | null;
 };
 
 const clean = (v?: string | null) => (v ?? '').trim();
@@ -26,10 +26,16 @@ export function regionLine(a: AddressParts): string {
 /**
  * @param recipient ФИО получателя карго; пусто — берётся общее из адреса,
  *                  а если и его нет — код клиента (как на бэкенде).
+ * @param addressSuffix приписка карго к адресу склада, клеится слитно.
  */
 export function buildAddressLine(
   a: AddressParts,
-  opts: { recipient?: string | null; cargoCode?: string | null; clientCode?: string | null } = {},
+  opts: {
+    recipient?: string | null;
+    cargoCode?: string | null;
+    clientCode?: string | null;
+    addressSuffix?: string | null;
+  } = {},
 ): string {
   const clientCode = clean(opts.clientCode);
   const recipient = clean(opts.recipient) || clean(a.recipient_name) || clientCode;
@@ -37,11 +43,10 @@ export function buildAddressLine(
     recipient,
     clean(a.phone),
     regionLine(a),
-    clean(a.detail_address),
+    clean(a.detail_address) + clean(opts.addressSuffix),
     clean(opts.cargoCode),
     // Без дубля: если ФИО нигде не задано, получателем стал сам код клиента.
     clientCode === recipient ? '' : clientCode,
-    clean(a.postal_code),
   ]
     .filter(Boolean)
     .join(' ');

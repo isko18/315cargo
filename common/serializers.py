@@ -13,6 +13,7 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
     """
 
     region = serializers.CharField(source="region_line", read_only=True)
+    detail_address_full = serializers.SerializerMethodField()
     recipient = serializers.SerializerMethodField()
     one_line = serializers.SerializerMethodField()
     client_code = serializers.SerializerMethodField()
@@ -27,7 +28,7 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
             "city",
             "district",
             "detail_address",
-            "postal_code",
+            "detail_address_full",
             "instructions",
             "is_active",
             "region",
@@ -54,6 +55,14 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
         """ФИО получателя карго клиента — у каждого карго свой человек в Китае."""
         return getattr(self._cargo(), "recipient_name", "") or ""
 
+    def _address_suffix(self):
+        """Приписка к адресу склада — у каждого карго своя ячейка."""
+        return getattr(self._cargo(), "address_suffix", "") or ""
+
+    def get_detail_address_full(self, obj):
+        """Детальный адрес вместе с припиской карго — для ручного заполнения."""
+        return obj.detail_for(self._address_suffix())
+
     def get_client_code(self, obj):
         return self._client_code()
 
@@ -65,5 +74,8 @@ class DeliveryAddressSerializer(serializers.ModelSerializer):
 
     def get_one_line(self, obj):
         return obj.one_line(
-            self._client_code(), self._cargo_code(), self._cargo_recipient()
+            client_code=self._client_code(),
+            cargo_code=self._cargo_code(),
+            cargo_recipient=self._cargo_recipient(),
+            address_suffix=self._address_suffix(),
         )

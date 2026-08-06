@@ -135,12 +135,50 @@ def test_cargo_code_goes_before_client_code(user, superuser_client):
     assert r.status_code == 200
     assert r.data["cargo_code"] == "x69610"
     assert r.data["one_line"] == (
-        f"张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 {code} 528241"
+        f"张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 {code}"
     )
 
 
 @pytest.mark.django_db
-def test_one_line_order_name_first_code_before_postal(auth_client, superuser_client):
+def test_cargo_address_suffix_glued_to_detail(user, superuser_client):
+    """Приписка карго клеится к адресу слитно, индекса в строке нет."""
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    superuser_client.put(
+        "/api/delivery-address/",
+        {
+            "recipient_name": "",
+            "phone": "13250150777",
+            "province": "广东",
+            "city": "佛山",
+            "district": "南海",
+            "detail_address": "里水镇和顺鹤峰1号仓315库",
+        },
+        format="json",
+    )
+    cargo = user.cargo
+    cargo.recipient_name = "程先生"
+    cargo.code = "x69610"
+    cargo.address_suffix = "东"
+    cargo.save()
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+    r = client.get("/api/delivery-address/")
+
+    code = user.client_code
+    assert r.data["one_line"] == (
+        f"程先生 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库东 x69610 {code}"
+    )
+    # Полный детальный адрес — для ручного заполнения полей в PDD.
+    assert r.data["detail_address_full"] == "里水镇和顺鹤峰1号仓315库东"
+    # Индекса нет ни в строке, ни в ответе.
+    assert "postal_code" not in r.data
+
+
+@pytest.mark.django_db
+def test_one_line_starts_with_name_and_ends_with_client_code(auth_client, superuser_client):
     superuser_client.put(
         "/api/delivery-address/",
         {
@@ -157,10 +195,10 @@ def test_one_line_order_name_first_code_before_postal(auth_client, superuser_cli
     code = auth_client.user.client_code
     r = auth_client.get("/api/delivery-address/")
     assert r.status_code == 200
-    # 收货人 = ФИО; код клиента — в конце адреса, перед индексом.
+    # 收货人 = ФИО; код клиента — в самом конце строки.
     assert r.data["recipient"] == "张伟"
     assert r.data["one_line"] == (
-        f"张伟 +8613800138000 广东省广州市白云区 XX路100号 {code} 510000"
+        f"张伟 +8613800138000 广东省广州市白云区 XX路100号 {code}"
     )
 
 
@@ -183,7 +221,7 @@ def test_code_not_duplicated_when_name_empty(auth_client, superuser_client):
     code = auth_client.user.client_code
     r = auth_client.get("/api/delivery-address/")
     assert r.data["recipient"] == code
-    assert r.data["one_line"] == f"{code} +8613800138000 广东省 XX路100号 510000"
+    assert r.data["one_line"] == f"{code} +8613800138000 广东省 XX路100号"
 
 
 @pytest.mark.django_db

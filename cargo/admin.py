@@ -13,7 +13,7 @@ class CargoCompanyAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("title",)}
     readonly_fields = ("created_at", "updated_at", "client_code_seq")
     fieldsets = (
-        (None, {"fields": ("title", "slug", "code", "recipient_name", "description", "logo", "is_active")}),
+        (None, {"fields": ("title", "slug", "code", "recipient_name", "address_suffix", "description", "logo", "is_active")}),
         ("Коды клиентов", {"fields": ("client_code_prefix", "client_code_seq")}),
         ("Контакты", {"fields": ("phone", "address")}),
         ("Даты", {"fields": ("created_at", "updated_at")}),

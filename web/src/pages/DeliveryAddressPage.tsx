@@ -12,7 +12,6 @@ type AddressForm = {
   city: string;
   district: string;
   detail_address: string;
-  postal_code: string;
   instructions: string;
   is_active: boolean;
 };
@@ -24,7 +23,6 @@ const EMPTY: AddressForm = {
   city: '',
   district: '',
   detail_address: '',
-  postal_code: '',
   instructions: '',
   is_active: true,
 };
@@ -52,7 +50,6 @@ export default function DeliveryAddressPage() {
           city: d.city ?? '',
           district: d.district ?? '',
           detail_address: d.detail_address ?? '',
-          postal_code: d.postal_code ?? '',
           instructions: d.instructions ?? '',
           is_active: d.is_active ?? true,
         }),
@@ -91,7 +88,6 @@ export default function DeliveryAddressPage() {
           city: form.city.trim(),
           district: form.district.trim(),
           detail_address: form.detail_address.trim(),
-          postal_code: form.postal_code.trim(),
           instructions: form.instructions.trim(),
           is_active: form.is_active,
         }),
@@ -136,9 +132,6 @@ export default function DeliveryAddressPage() {
                 </Field>
                 <Field label={t('daddr.district')}>
                   <Input value={form.district} onChange={(e) => set('district', e.target.value)} placeholder="白云区" disabled={loading} />
-                </Field>
-                <Field label={t('daddr.postal')}>
-                  <Input value={form.postal_code} onChange={(e) => set('postal_code', e.target.value)} placeholder="510000" disabled={loading} />
                 </Field>
               </div>
               <Field label={t('daddr.detail')} className="mt-md">

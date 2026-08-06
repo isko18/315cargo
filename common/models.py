@@ -80,7 +80,10 @@ class DeliveryAddress(models.Model):
     city = models.CharField(_("Город (市)"), max_length=64, blank=True)
     district = models.CharField(_("Район (区/县)"), max_length=64, blank=True)
     detail_address = models.CharField(_("Детальный адрес (详细地址)"), max_length=255, blank=True)
-    postal_code = models.CharField(_("Индекс (邮编)"), max_length=16, blank=True)
+    # Не используется: индекс убран из адреса — маркетплейс подставляет его сам
+    # по 省市区, а лишнее число в конце мешало распознаванию. Колонку оставили,
+    # чтобы не терять заполненные значения.
+    postal_code = models.CharField(_("Индекс (邮编), не используется"), max_length=16, blank=True)
     instructions = models.TextField(
         _("Памятка клиенту"),
         blank=True,
@@ -132,11 +135,27 @@ class DeliveryAddress(models.Model):
         """省市区 одной строкой (как ожидает умное распознавание PDD)."""
         return "".join(p for p in (self.province, self.city, self.district) if p)
 
-    def one_line(self, client_code=None, cargo_code=None, cargo_recipient=None):
+    def detail_for(self, address_suffix=None):
+        """Детальный адрес с припиской карго: «…仓315库» + «东» → «…仓315库东».
+
+        Приписка клеится слитно — это часть номера склада, а не отдельное слово.
+        """
+        return (self.detail_address or "").strip() + (address_suffix or "").strip()
+
+    def one_line(
+        self,
+        client_code=None,
+        cargo_code=None,
+        cargo_recipient=None,
+        address_suffix=None,
+    ):
         """Готовая строка для вставки в PDD (智能填写).
 
-        Порядок: ФИО, телефон, 省市区, детальный адрес, код карго, код клиента,
-        индекс. ФИО и код карго берутся из карго клиента.
+        Порядок: ФИО, телефон, 省市区, детальный адрес (с припиской карго),
+        код карго, код клиента. ФИО, код и приписка берутся из карго клиента.
+
+        Индекс в строку не входит: маркетплейсы подставляют его сами по 省市区,
+        а лишнее число в конце сбивало распознавание адреса.
         """
         recipient = self.recipient_for(client_code, cargo_recipient)
         code = (client_code or "").strip()
@@ -144,9 +163,8 @@ class DeliveryAddress(models.Model):
             recipient,
             (self.phone or "").strip(),
             self.region_line(),
-            (self.detail_address or "").strip(),
+            self.detail_for(address_suffix),
             (cargo_code or "").strip(),
             "" if code == recipient else code,  # без дубля, если ФИО не задано
-            (self.postal_code or "").strip(),
         ]
         return " ".join(p for p in parts if p)

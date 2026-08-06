@@ -30,6 +30,15 @@ class CargoCompany(models.Model):
             "маркетплейсе. У каждого карго свой человек на приёмке."
         ),
     )
+    address_suffix = models.CharField(
+        _("Приписка к адресу склада"),
+        max_length=16,
+        blank=True,
+        help_text=_(
+            "Символы в конец детального адреса — у каждого карго свои: "
+            "«…仓315库» + «东» → «…仓315库东». Пишется слитно, без пробела."
+        ),
+    )
     description = models.TextField(_("Описание"), blank=True)
     logo = models.ImageField(_("Логотип"), upload_to="cargo_logos/", null=True, blank=True)
     phone = models.CharField(_("Телефон"), max_length=32, blank=True)

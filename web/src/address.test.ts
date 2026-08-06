@@ -8,7 +8,6 @@ const WAREHOUSE = {
   city: '佛山',
   district: '南海',
   detail_address: '里水镇和顺鹤峰1号仓315库',
-  postal_code: '528241',
 };
 
 describe('buildAddressLine', () => {
@@ -19,7 +18,7 @@ describe('buildAddressLine', () => {
         cargoCode: 'x69610',
         clientCode: 'X0001',
       }),
-    ).toBe('张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 X0001 528241');
+    ).toBe('张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 x69610 X0001');
   });
 
   it('без ФИО карго берёт общее из адреса', () => {
@@ -36,15 +35,34 @@ describe('buildAddressLine', () => {
     expect(line.match(/X0001/g)).toHaveLength(1);
   });
 
+  it('приписка карго клеится к адресу слитно', () => {
+    expect(
+      buildAddressLine(WAREHOUSE, {
+        recipient: '程先生',
+        cargoCode: 'x69610',
+        clientCode: 'ISI-0002',
+        addressSuffix: '东',
+      }),
+    ).toBe('程先生 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库东 x69610 ISI-0002');
+  });
+
+  it('индекс в строку не попадает', () => {
+    const line = buildAddressLine(
+      { ...WAREHOUSE, postal_code: '528241' } as never,
+      { recipient: '张伟', clientCode: 'X0001' },
+    );
+    expect(line).not.toContain('528241');
+  });
+
   it('пропускает пустой код карго', () => {
     const line = buildAddressLine(WAREHOUSE, { recipient: '张伟', clientCode: 'X0001' });
-    expect(line).toBe('张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 X0001 528241');
+    expect(line).toBe('张伟 13250150777 广东佛山南海 里水镇和顺鹤峰1号仓315库 X0001');
   });
 
   it('обрезает пробелы и пропускает незаполненные части', () => {
     expect(
       buildAddressLine(
-        { phone: ' 13250150777 ', province: '广东', detail_address: '', postal_code: null },
+        { phone: ' 13250150777 ', province: '广东', detail_address: '' },
         { recipient: ' 张伟 ', clientCode: 'X0001' },
       ),
     ).toBe('张伟 13250150777 广东 X0001');

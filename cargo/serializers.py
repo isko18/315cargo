@@ -101,6 +101,7 @@ class CargoCompanySerializer(serializers.ModelSerializer):
             "slug",
             "code",
             "recipient_name",
+            "address_suffix",
             "description",
             "logo",
             "phone",
@@ -132,6 +133,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "slug",
             "code",
             "recipient_name",
+            "address_suffix",
             "description",
             "logo",
             "phone",
@@ -153,6 +155,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "slug",
             "code",
             "recipient_name",
+            "address_suffix",
             "client_code_seq",
             "is_active",
             "created_at",
@@ -206,6 +209,7 @@ class AdminCargoSerializer(serializers.ModelSerializer):
             "slug",
             "code",
             "recipient_name",
+            "address_suffix",
             "phone",
             "address",
             "price_per_kg_kgs",
@@ -251,6 +255,9 @@ class AdminCreateCargoSerializer(serializers.Serializer):
     recipient_name = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
+    address_suffix = serializers.CharField(
+        max_length=16, required=False, allow_blank=True, default=""
+    )
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
     address = serializers.CharField(required=False, allow_blank=True, default="")
     price_per_kg_kgs = serializers.DecimalField(
@@ -292,6 +299,7 @@ class AdminCreateCargoSerializer(serializers.Serializer):
                 slug=validated_data["slug"],
                 code=validated_data.get("code") or None,
                 recipient_name=validated_data.get("recipient_name", ""),
+                address_suffix=validated_data.get("address_suffix", ""),
                 phone=validated_data.get("phone", ""),
                 address=validated_data.get("address", ""),
                 price_per_kg_kgs=validated_data.get("price_per_kg_kgs", 0),
