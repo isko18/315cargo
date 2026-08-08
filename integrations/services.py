@@ -22,6 +22,7 @@ from django.utils import timezone
 from common.audit import log_audit
 from integrations.marketplaces import (
     PINDUODUO,
+    SHOP_1688,
     STATUSES_WITHOUT_PARCEL,
     TAOBAO,
     get_marketplace,
@@ -63,6 +64,7 @@ def get_default_client(marketplace: str) -> MarketplaceClient:
     setting = {
         PINDUODUO: "PINDUODUO_CLIENT_PATH",
         TAOBAO: "TAOBAO_CLIENT_PATH",
+        SHOP_1688: "SHOP_1688_CLIENT_PATH",
     }.get(marketplace, "")
     path = (getattr(settings, setting, "") or "") if setting else ""
     if not path:
@@ -414,3 +416,7 @@ class PinduoduoSyncService(MarketplaceSyncService):
 
 class TaobaoSyncService(MarketplaceSyncService):
     marketplace_key = TAOBAO
+
+
+class Shop1688SyncService(MarketplaceSyncService):
+    marketplace_key = SHOP_1688

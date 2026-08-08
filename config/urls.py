@@ -27,6 +27,7 @@ from city_delivery.views import (
 )
 from integrations.views import (
     PinduoduoIntegrationViewSet,
+    Shop1688IntegrationViewSet,
     TaobaoIntegrationViewSet,
 )
 from notifications.views import (
@@ -63,6 +64,7 @@ router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
 router.register("integrations/taobao", TaobaoIntegrationViewSet, basename="taobao")
+router.register("integrations/1688", Shop1688IntegrationViewSet, basename="shop1688")
 router.register("manage/staff", ManagedStaffViewSet, basename="manage-staff")
 router.register("manage/clients", ManagedClientViewSet, basename="manage-clients")
 router.register(

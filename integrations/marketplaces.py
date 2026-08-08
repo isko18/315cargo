@@ -22,6 +22,7 @@ from orders.models import Order
 
 PINDUODUO = "pinduoduo"
 TAOBAO = "taobao"
+SHOP_1688 = "1688"
 
 # Наши статусы заказа. Раньше всё, кроме оплаченного, выбрасывалось — клиент
 # не видел в приложении ни отменённых, ни неоплаченных заказов и думал, что они
@@ -178,13 +179,17 @@ _TRACK_KEY_RE = re.compile(r"mailno|logisticsid|expressno|trackingno", re.I)
 _COMPONENT_ORDER_ID_RE = re.compile(r"^(?P<name>[A-Za-z]+)_(?P<oid>\d{6,})")
 
 
-def extract_taobao_orders(response):
-    """Полный ответ ``queryboughtlistv2`` → список заказов.
+def extract_ultron_orders(response):
+    """Ответ площадки Alibaba (Taobao, 1688) → список заказов.
 
-    Ответ приходит деревом компонентов Ultron: один заказ размазан по
-    ``Main_<id>``, ``sellerInfo_<id>``, ``item_<id>_1_1``, ``pay_<id>/0``,
+    Обе площадки отдают список деревом компонентов Ultron: один заказ размазан
+    по ``Main_<id>``, ``sellerInfo_<id>``, ``item_<id>_1_1``, ``pay_<id>/0``,
     связанным общим id в имени компонента. Собираем их обратно в один объект.
-    Структура подтверждена реальным ответом (2026-08-08).
+
+    Структура подтверждена реальным ответом Taobao (2026-08-08). У 1688 движок
+    тот же (``mtop.alibaba.cbu.wireless.uniform.render.*``), но имена
+    компонентов могут отличаться — поэтому заказом считается любая группа,
+    где нашёлся идентификатор заказа, а не только группа с ``Main_``.
     """
     if not isinstance(response, dict):
         return []
@@ -203,26 +208,54 @@ def extract_taobao_orders(response):
 
     orders = []
     for order_id, parts in grouped.items():
-        # Main есть у настоящего заказа; группы-обёртки (MainGroup, subGroup)
-        # полей не несут и заказом не являются.
-        if "Main" not in parts:
-            continue
-        orders.append({"__taobao_order_id": order_id, "parts": parts})
+        if _looks_like_order(parts, order_id):
+            orders.append({"__ultron_order_id": order_id, "parts": parts})
     return orders
 
 
-def normalize_taobao_order(raw: dict):
-    """Собранный заказ Taobao → payload, либо None если заказ не нужен.
+_ORDER_ID_KEYS = ("orderId", "orderid", "bizOrderId", "orderNo", "tradeId")
 
-    Раскладка проверена на реальном ответе: сумма — в ``pay/actualFee`` строкой
-    с валютой, статус — в ``sellerInfo.status.text`` и заголовке блока ожидания,
-    товары — в ``item.item``.
+
+def _looks_like_order(parts: dict, order_id: str) -> bool:
+    """Группа компонентов — это заказ, а не служебный блок?
+
+    Признак — идентификатор заказа в полях. Запасной вариант для площадок с
+    другими именами компонентов: числовой id и несколько блоков сразу
+    (у одиночных обёрток вроде разделителя блок один).
+    """
+    for blocks in parts.values():
+        for fields in blocks:
+            if any(fields.get(key) for key in _ORDER_ID_KEYS):
+                return True
+    return order_id.isdigit() and len(parts) >= 3
+
+
+def normalize_ultron_order(raw: dict):
+    """Собранный заказ Taobao/1688 → payload, либо None если заказ не разобран.
+
+    Раскладка проверена на реальном ответе Taobao: сумма — в ``pay/actualFee``
+    строкой с валютой, статус — в ``sellerInfo.status.text`` и заголовке блока
+    ожидания, товары — в ``item.item``. У 1688 имена блоков могут отличаться:
+    если поля не найдутся, заказ всё равно сохранится по идентификатору, а
+    раскладку надо будет дописать по реальному ответу
+    (``manage.py marketplace_parse_check --marketplace 1688``).
     """
     parts = raw.get("parts") if isinstance(raw.get("parts"), dict) else None
     if not parts:
         return None
-    main = (parts.get("Main") or [{}])[0]
-    order_id = str(raw.get("__taobao_order_id") or main.get("orderId") or "").strip()
+    order_id = str(raw.get("__ultron_order_id") or "").strip()
+    if not order_id:
+        # Имя компонента не дало id — ищем его в полях любого блока.
+        for blocks in parts.values():
+            for fields in blocks:
+                for key in _ORDER_ID_KEYS:
+                    if fields.get(key):
+                        order_id = str(fields[key]).strip()
+                        break
+                if order_id:
+                    break
+            if order_id:
+                break
     if not order_id:
         return None
 
@@ -321,16 +354,31 @@ MARKETPLACES = {
         key=TAOBAO,
         title="Taobao",
         source=Order.Source.TAOBAO,
-        normalize=normalize_taobao_order,
+        normalize=normalize_ultron_order,
         # Собранный заказ помечен служебным ключом — по нему и опознаём.
-        raw_marker=("__taobao_order_id",),
-        extract=extract_taobao_orders,
+        raw_marker=("__ultron_order_id",),
+        extract=extract_ultron_orders,
         audit_connected=AuditLog.Action.TAOBAO_CONNECTED,
         audit_disconnected=AuditLog.Action.TAOBAO_DISCONNECTED,
         audit_synced=AuditLog.Action.TAOBAO_SYNCED,
         audit_session_expired=AuditLog.Action.TAOBAO_SESSION_EXPIRED,
         notify_connected=NotificationType.TAOBAO_CONNECTED,
         notify_synced=NotificationType.TAOBAO_SYNCED,
+    ),
+    SHOP_1688: Marketplace(
+        key=SHOP_1688,
+        title="1688",
+        source=Order.Source.SHOP_1688,
+        normalize=normalize_ultron_order,
+        # Тот же движок Alibaba, что у Taobao: заказ собирается из компонентов.
+        raw_marker=("__ultron_order_id",),
+        audit_connected=AuditLog.Action.SHOP1688_CONNECTED,
+        audit_disconnected=AuditLog.Action.SHOP1688_DISCONNECTED,
+        audit_synced=AuditLog.Action.SHOP1688_SYNCED,
+        audit_session_expired=AuditLog.Action.SHOP1688_SESSION_EXPIRED,
+        notify_connected=NotificationType.SHOP1688_CONNECTED,
+        notify_synced=NotificationType.SHOP1688_SYNCED,
+        extract=extract_ultron_orders,
     ),
 }
 

@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from integrations.marketplaces import PINDUODUO, TAOBAO
+from integrations.marketplaces import PINDUODUO, SHOP_1688, TAOBAO
 from integrations.serializers import (
     MarketplaceAccountSerializer,
     MarketplaceConnectSerializer,
@@ -137,3 +137,7 @@ class PinduoduoIntegrationViewSet(MarketplaceIntegrationViewSet):
 
 class TaobaoIntegrationViewSet(MarketplaceIntegrationViewSet):
     marketplace = TAOBAO
+
+
+class Shop1688IntegrationViewSet(MarketplaceIntegrationViewSet):
+    marketplace = SHOP_1688

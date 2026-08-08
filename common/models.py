@@ -27,6 +27,10 @@ class AuditLog(models.Model):
         TAOBAO_DISCONNECTED = "taobao_disconnected", _("Отключение Taobao")
         TAOBAO_SYNCED = "taobao_synced", _("Синхронизация Taobao")
         TAOBAO_SESSION_EXPIRED = "taobao_session_expired", _("Сессия Taobao истекла")
+        SHOP1688_CONNECTED = "shop1688_connected", _("Подключение 1688")
+        SHOP1688_DISCONNECTED = "shop1688_disconnected", _("Отключение 1688")
+        SHOP1688_SYNCED = "shop1688_synced", _("Синхронизация 1688")
+        SHOP1688_SESSION_EXPIRED = "shop1688_session_expired", _("Сессия 1688 истекла")
         ADMIN_ACTION = "admin_action", _("Действие администратора")
 
     actor = models.ForeignKey(

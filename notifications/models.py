@@ -15,6 +15,8 @@ class NotificationType(models.TextChoices):
     PINDUODUO_SYNCED = "pinduoduo_synced", _("Pinduoduo синхронизирован")
     TAOBAO_CONNECTED = "taobao_connected", _("Taobao подключён")
     TAOBAO_SYNCED = "taobao_synced", _("Taobao синхронизирован")
+    SHOP1688_CONNECTED = "shop1688_connected", _("1688 подключён")
+    SHOP1688_SYNCED = "shop1688_synced", _("1688 синхронизирован")
     MARKETING = "marketing", _("Рекламное")
     SYSTEM = "system", _("Системное")
 

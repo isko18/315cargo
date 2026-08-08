@@ -15,6 +15,7 @@ class MarketplaceAccount(models.Model):
     class Marketplace(models.TextChoices):
         PINDUODUO = "pinduoduo", _("Pinduoduo")
         TAOBAO = "taobao", _("Taobao")
+        SHOP_1688 = "1688", _("1688")
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
