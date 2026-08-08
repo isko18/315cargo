@@ -25,7 +25,10 @@ from city_delivery.views import (
     ManagedCityDeliveryRequestViewSet,
     ManagedCityDeliveryTariffViewSet,
 )
-from integrations.pinduoduo.views import PinduoduoIntegrationViewSet
+from integrations.views import (
+    PinduoduoIntegrationViewSet,
+    TaobaoIntegrationViewSet,
+)
 from notifications.views import (
     DeviceTokenViewSet,
     NotificationPreferenceAPIView,
@@ -59,6 +62,7 @@ router.register("city-delivery-tariffs", CityDeliveryTariffViewSet, basename="ci
 router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
+router.register("integrations/taobao", TaobaoIntegrationViewSet, basename="taobao")
 router.register("manage/staff", ManagedStaffViewSet, basename="manage-staff")
 router.register("manage/clients", ManagedClientViewSet, basename="manage-clients")
 router.register(

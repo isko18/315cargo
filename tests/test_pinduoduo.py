@@ -1,7 +1,7 @@
 import pytest
 
-from integrations.models import PinduoduoAccount
-from integrations.pinduoduo.services import PinduoduoSyncService
+from integrations.models import MarketplaceAccount
+from integrations.services import PinduoduoSyncService
 from orders.models import Order
 
 
@@ -21,7 +21,7 @@ def test_connect_creates_account(auth_client):
     assert response.status_code == 200
     assert response.data["is_connected"] is True
 
-    account = PinduoduoAccount.objects.get(user=auth_client.user)
+    account = MarketplaceAccount.objects.get(user=auth_client.user)
     assert account.session_data == {"foo": "bar"}
 
 
@@ -266,10 +266,10 @@ def test_session_expired_marks_account_and_notifies(auth_client):
 def test_session_lifetime_and_reason_are_recorded(auth_client):
     """Без замера нельзя понять, почему сессии PDD живут по 20 минут."""
     from common.models import AuditLog
-    from integrations.models import PinduoduoAccount
+    from integrations.models import MarketplaceAccount
 
     auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
-    account = PinduoduoAccount.objects.get(user=auth_client.user)
+    account = MarketplaceAccount.objects.get(user=auth_client.user)
     assert account.session_started_at is not None
     assert account.session_expired_at is None
 
@@ -293,7 +293,7 @@ def test_session_lifetime_and_reason_are_recorded(auth_client):
 
 @pytest.mark.django_db
 def test_reconnect_resets_session_clock(auth_client):
-    from integrations.models import PinduoduoAccount
+    from integrations.models import MarketplaceAccount
 
     auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
     auth_client.post(
@@ -301,7 +301,7 @@ def test_reconnect_resets_session_clock(auth_client):
     )
     auth_client.post("/api/integrations/pinduoduo/connect/", {}, format="json")
 
-    account = PinduoduoAccount.objects.get(user=auth_client.user)
+    account = MarketplaceAccount.objects.get(user=auth_client.user)
     # Новая сессия — старые отметки не должны портить следующий замер.
     assert account.session_expired_at is None
     assert account.last_expire_reason == ""
@@ -321,7 +321,7 @@ def test_session_stats_command_runs(auth_client):
         format="json",
     )
     out = StringIO()
-    call_command("pdd_session_stats", stdout=out)
+    call_command("marketplace_session_stats", stdout=out)
     text = out.getvalue()
     assert "Разлогины" in text
     assert "login_redirect" in text

@@ -1,12 +1,13 @@
 from rest_framework import serializers
 
-from .models import PinduoduoAccount
+from .models import MarketplaceAccount
 
 
-class PinduoduoAccountSerializer(serializers.ModelSerializer):
+class MarketplaceAccountSerializer(serializers.ModelSerializer):
     class Meta:
-        model = PinduoduoAccount
+        model = MarketplaceAccount
         fields = (
+            "marketplace",
             "is_connected",
             "external_user_id",
             "last_sync_at",
@@ -17,11 +18,11 @@ class PinduoduoAccountSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class PinduoduoConnectSerializer(serializers.Serializer):
+class MarketplaceConnectSerializer(serializers.Serializer):
     session_data = serializers.JSONField(required=False)
 
 
-class PinduoduoOrderPayloadSerializer(serializers.Serializer):
+class MarketplaceOrderPayloadSerializer(serializers.Serializer):
     external_order_id = serializers.CharField()
     product_url = serializers.URLField(required=False, allow_blank=True)
     product_title = serializers.CharField(required=False, allow_blank=True)
@@ -34,13 +35,13 @@ class PinduoduoOrderPayloadSerializer(serializers.Serializer):
     raw = serializers.JSONField(required=False)
 
 
-class PinduoduoWebhookSerializer(serializers.Serializer):
+class MarketplaceWebhookSerializer(serializers.Serializer):
     client_code = serializers.CharField()
-    orders = PinduoduoOrderPayloadSerializer(many=True)
+    orders = MarketplaceOrderPayloadSerializer(many=True)
 
 
-class PinduoduoIngestSerializer(serializers.Serializer):
-    """Заказы из WebView (путь B). Принимаем СЫРЫЕ объекты order_list_v4 —
+class MarketplaceIngestSerializer(serializers.Serializer):
+    """Заказы из WebView. Принимаем СЫРЫЕ объекты ответа маркетплейса —
     разбор (цена/статус/фильтр) делается на сервере, чтобы правки не требовали
     пересборки приложения."""
 

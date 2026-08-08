@@ -13,6 +13,8 @@ class NotificationType(models.TextChoices):
     CITY_DELIVERY_STATUS_CHANGED = "city_delivery_status_changed", _("Изменение статуса доставки")
     PINDUODUO_CONNECTED = "pinduoduo_connected", _("Pinduoduo подключён")
     PINDUODUO_SYNCED = "pinduoduo_synced", _("Pinduoduo синхронизирован")
+    TAOBAO_CONNECTED = "taobao_connected", _("Taobao подключён")
+    TAOBAO_SYNCED = "taobao_synced", _("Taobao синхронизирован")
     MARKETING = "marketing", _("Рекламное")
     SYSTEM = "system", _("Системное")
 

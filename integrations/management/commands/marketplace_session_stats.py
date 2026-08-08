@@ -1,12 +1,13 @@
-"""Сколько живут сессии Pinduoduo и от чего умирают.
+"""Сколько живут сессии маркетплейсов (Pinduoduo, Taobao) и от чего умирают.
 
-Сессия PDD живёт в WebView мобильного приложения — сервер её не использует.
+Сессия живёт в WebView мобильного приложения — сервер её не использует.
 Но короткие сессии и баны бьют по клиентам, а без измерения причину не найти:
-«клиент открыл официальное приложение PDD» и «куки не пережили перезапуск»
+«клиент открыл официальное приложение» и «куки не пережили перезапуск»
 выглядят одинаково. Команда собирает факты из журнала аудита.
 
-    manage.py pdd_session_stats            # за всё время
-    manage.py pdd_session_stats --days 7   # только за неделю
+    manage.py marketplace_session_stats                        # всё, оба
+    manage.py marketplace_session_stats --days 7               # за неделю
+    manage.py marketplace_session_stats --marketplace taobao   # один
 """
 
 from collections import Counter, defaultdict
@@ -17,7 +18,8 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from common.models import AuditLog
-from integrations.models import PinduoduoAccount
+from integrations.marketplaces import MARKETPLACES, get_marketplace
+from integrations.models import MarketplaceAccount
 
 
 def _fmt(minutes):
@@ -29,28 +31,36 @@ def _fmt(minutes):
 
 
 class Command(BaseCommand):
-    help = "Статистика жизни сессий Pinduoduo: длительность и причины разлогина"
+    help = "Статистика жизни сессий маркетплейсов: длительность и причины разлогина"
 
     def add_arguments(self, parser):
         parser.add_argument("--days", type=int, default=0, help="Окно в днях (0 — всё)")
+        parser.add_argument(
+            "--marketplace",
+            default="",
+            help=f"Только один: {', '.join(MARKETPLACES)}. Пусто — все.",
+        )
 
     def handle(self, *args, **options):
         days = options["days"]
         since = timezone.now() - timedelta(days=days) if days else None
-
-        expired = AuditLog.objects.filter(
-            action=AuditLog.Action.PINDUODUO_SESSION_EXPIRED
-        )
-        connects = AuditLog.objects.filter(
-            action=AuditLog.Action.PINDUODUO_CONNECTED
-        )
-        if since:
-            expired = expired.filter(created_at__gte=since)
-            connects = connects.filter(created_at__gte=since)
+        keys = [options["marketplace"]] if options["marketplace"] else list(MARKETPLACES)
 
         self.stdout.write(
             f"Окно: {'последние ' + str(days) + ' дн.' if days else 'всё время'}"
         )
+        for key in keys:
+            self._report(get_marketplace(key), since)
+
+    def _report(self, marketplace, since):
+        self.stdout.write(
+            self.style.MIGRATE_HEADING(f"\n=== {marketplace.title} ===")
+        )
+        expired = AuditLog.objects.filter(action=marketplace.audit_session_expired)
+        connects = AuditLog.objects.filter(action=marketplace.audit_connected)
+        if since:
+            expired = expired.filter(created_at__gte=since)
+            connects = connects.filter(created_at__gte=since)
 
         # --- Длительность сессий и причины (точные данные, с момента внедрения) ---
         lifetimes = []
@@ -90,17 +100,17 @@ class Command(BaseCommand):
                     quick += 1
 
         self.stdout.write(self.style.MIGRATE_HEADING("\nПовторные входы (косвенно)"))
-        self.stdout.write(f"  клиентов с логином PDD: {len(by_user)}")
+        self.stdout.write(f"  клиентов с логином: {len(by_user)}")
         self.stdout.write(f"  всего входов: {sum(len(v) for v in by_user.values())}")
         if gaps:
             self.stdout.write(f"  медиана между входами: {_fmt(median(gaps))}")
             self.stdout.write(
                 f"  входов подряд в пределах 10 мин: {quick}"
-                + ("  ← так выглядит перебор для антифрода PDD" if quick else "")
+                + ("  ← так выглядит перебор для антифрода" if quick else "")
             )
 
         # --- Текущее состояние аккаунтов ---
-        accounts = PinduoduoAccount.objects.select_related("user").order_by("-updated_at")
+        accounts = MarketplaceAccount.objects.select_related("user").order_by("-updated_at")
         self.stdout.write(self.style.MIGRATE_HEADING("\nАккаунты"))
         for a in accounts:
             life = a.session_lifetime()

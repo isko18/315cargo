@@ -1,12 +1,13 @@
 from django.contrib import admin
 
-from .models import PinduoduoAccount
+from .models import MarketplaceAccount
 
 
-@admin.register(PinduoduoAccount)
-class PinduoduoAccountAdmin(admin.ModelAdmin):
+@admin.register(MarketplaceAccount)
+class MarketplaceAccountAdmin(admin.ModelAdmin):
     list_display = (
         "user",
+        "marketplace",
         "is_connected",
         "session_lifetime",
         "last_expire_reason",

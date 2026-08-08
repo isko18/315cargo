@@ -2,19 +2,20 @@ import logging
 
 from celery import shared_task
 
-from .models import PinduoduoAccount
+from .models import MarketplaceAccount
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task(name="integrations.sync_pinduoduo_account")
 def sync_pinduoduo_account(account_id: int):
-    from integrations.pinduoduo.services import PinduoduoSyncService
+    """Историческое имя задачи: синкает аккаунт любого маркетплейса по id."""
+    from integrations.services import MarketplaceSyncService
 
-    account = PinduoduoAccount.objects.select_related("user").filter(id=account_id).first()
+    account = MarketplaceAccount.objects.select_related("user").filter(id=account_id).first()
     if not account or not account.is_connected:
         return {"skipped": True}
-    service = PinduoduoSyncService(account.user)
+    service = MarketplaceSyncService(account.user, marketplace=account.marketplace)
     result = service.sync_orders()
     return {
         "synced": result.synced,
@@ -27,7 +28,7 @@ def sync_pinduoduo_account(account_id: int):
 @shared_task(name="integrations.sync_all_pinduoduo_accounts")
 def sync_all_pinduoduo_accounts():
     ids = list(
-        PinduoduoAccount.objects.filter(is_connected=True).values_list("id", flat=True)
+        MarketplaceAccount.objects.filter(is_connected=True).values_list("id", flat=True)
     )
     for account_id in ids:
         sync_pinduoduo_account.delay(account_id)

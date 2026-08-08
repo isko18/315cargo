@@ -248,6 +248,7 @@ FCM_CREDENTIALS_PATH = os.getenv("FCM_CREDENTIALS_PATH", "")
 # e.g. "integrations.pinduoduo.clients.WebViewClient".
 # Leave empty to use the no-op NullPinduoduoClient.
 PINDUODUO_CLIENT_PATH = os.getenv("PINDUODUO_CLIENT_PATH", "")
+TAOBAO_CLIENT_PATH = os.getenv("TAOBAO_CLIENT_PATH", "")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_BROKER_URL = REDIS_URL
