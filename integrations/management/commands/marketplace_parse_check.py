@@ -81,6 +81,20 @@ class Command(BaseCommand):
         except json.JSONDecodeError as exc:
             raise CommandError(f"Не похоже на JSON: {exc}") from exc
 
+        # Ответ без сессии приходит с кодом 200 и пустым data — по HTTP его не
+        # отличить от нормального. Проверяем конверт mtop, иначе человек будет
+        # думать, что сломался разбор, хотя на деле нужно просто перелогиниться.
+        ret = payload.get("ret") if isinstance(payload, dict) else None
+        if isinstance(ret, list) and ret:
+            code = str(ret[0])
+            if "SESSION_EXPIRED" in code or "NEED_LOGIN" in code:
+                raise CommandError(
+                    f"Это ответ без сессии: {code}. Залогиньтесь в Taobao и снимите "
+                    "ответ заново — заказов в нём нет."
+                )
+            if not code.startswith("SUCCESS"):
+                self.stdout.write(self.style.WARNING(f"Маркетплейс вернул: {code}"))
+
         orders = _find_orders(payload)
         if orders is None:
             raise CommandError(

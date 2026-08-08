@@ -35,17 +35,28 @@
 
 ```
 Страница:  https://h5.m.taobao.com/mlapp/olist.html
-Запрос:    https://h5api.m.taobao.com/h5/mtop.taobao.order.queryboughtlist/…
+Запрос:    https://h5api.m.taobao.com/h5/mtop.taobao.order.queryboughtlistv2/1.0/…
 ```
 
-Имя API может отличаться по версии (`mtop.order.queryboughtlist`,
-`mtop.taobao.order.queryboughtlist`), поэтому **ловите по подстроке**
-`queryboughtlist` в URL, без учёта регистра — так хук переживёт смену версии.
+Имя и версия проверены живым браузером (2026-08-08): сейчас это
+**`mtop.taobao.order.queryboughtlistv2`, версия `1.0`**. Версия менялась и будет
+меняться, поэтому **ловите по подстроке** `queryboughtlist` в URL без учёта
+регистра — она входит и в `queryboughtlistv2`, и в будущие варианты.
 
-Ответ mtop завёрнут в `mtopjsonp…({...})` при JSONP или приходит чистым JSON.
-Заказы лежат в `data.orders` (иногда `data.data`) — присылайте массив как есть,
-**ничего не разбирая на клиенте**: разбор живёт на сервере, чтобы правки не
-требовали пересборки приложения.
+Ответ завёрнут в JSONP (`mtopjsonp3({...})`) и имеет конверт:
+
+```jsonc
+mtopjsonp3({
+  "api": "mtop.taobao.order.queryboughtlistv2",
+  "v": "1.0",
+  "ret": ["SUCCESS::接口调用成功"],   // статус вызова, см. ниже
+  "data": { /* здесь заказы */ }
+})
+```
+
+Заказы лежат внутри `data` — присылайте их как есть, **ничего не разбирая
+на клиенте**: разбор живёт на сервере, чтобы правки не требовали пересборки
+приложения. Можно прислать и весь ответ целиком — сервер найдёт список сам.
 
 ```jsonc
 POST /api/integrations/taobao/ingest/
@@ -60,6 +71,30 @@ POST /api/integrations/taobao/ingest/
 `cookie2`**; появление обеих означает, что вход выполнен. Куки живут на домене
 `.taobao.com`, сохранять и восстанавливать их нужно так же, как описано в
 разделе 8 инструкции по PDD (session-cookie → постоянные, `flush()` обязателен).
+
+### Как поймать разлогин — важно
+
+Протухшая сессия приходит **с кодом HTTP 200**, по статусу её не отличить.
+Проверено живым браузером: без сессии `olist.html` редиректит на
+`login.m.taobao.com/havanaone/login/login.htm`, а mtop отвечает так:
+
+```jsonc
+mtopjsonp3({"api":"mtop.taobao.order.queryboughtlistv2","data":{},
+            "ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"v":"1.0"})
+```
+
+Поэтому разлогин определяйте **по телу ответа**, а не только по редиректу:
+
+```dart
+// ret[0] вида FAIL_SYS_SESSION_EXPIRED / FAIL_SYS_TOKEN_EXOIRED / NEED_LOGIN
+final ret = (json['ret'] as List?)?.first?.toString() ?? '';
+if (ret.contains('SESSION_EXPIRED') || ret.contains('NEED_LOGIN')) {
+  await api.markSessionExpired(reason: 'session_expired_mtop');
+  return; // НЕ пытаться перелогиниться автоматически — это путь к бану
+}
+```
+
+Такой ответ **не нужно** слать в `/ingest/`: заказов в нём нет.
 
 ---
 

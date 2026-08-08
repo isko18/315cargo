@@ -249,3 +249,20 @@ def test_parse_check_flags_unknown_layout(tmp_path):
     text = out.getvalue()
     assert "НЕ ОПОЗНАН" in text
     assert "не совпала" in text
+
+
+@pytest.mark.django_db
+def test_parse_check_recognises_expired_session_envelope(tmp_path):
+    """Ответ без сессии приходит с HTTP 200 — распознаём его по конверту mtop."""
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    # Реальный ответ, снятый браузером без сессии.
+    src = tmp_path / "expired.json"
+    src.write_text(
+        'mtopjsonp3({"api":"mtop.taobao.order.queryboughtlistv2","data":{},'
+        '"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"v":"1.0"})',
+        encoding="utf-8",
+    )
+    with pytest.raises(CommandError, match="без сессии"):
+        call_command("marketplace_parse_check", "--marketplace", "taobao", "--file", str(src))
