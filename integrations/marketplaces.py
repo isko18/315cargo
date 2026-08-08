@@ -106,12 +106,19 @@ def _taobao_first(raw: dict, *keys):
 
 
 def normalize_taobao_order(raw: dict):
-    """Сырой заказ ``mtop.taobao.order.queryboughtlist`` → payload, либо None.
+    """Сырой заказ Taobao → payload, либо None.
 
-    Формат mtop заметно отличается от PDD: заказ приходит блоками
-    (``orderInfo``/``statusInfo``/``payInfo``) и товарами в ``subOrders``.
-    Раскладку держим терпимой к вариантам: у Taobao поля меняются от версии
-    к версии, и падать из-за этого импорт не должен.
+    ВНИМАНИЕ: раскладка полей ещё не подтверждена реальными данными.
+
+    Ответ ``queryboughtlistv2`` (проверено вживую 2026-08-08) приходит деревом
+    компонентов Ultron — ``data.data`` + ``data.hierarchy`` — а не списком
+    заказов с блоками ``statusInfo``/``payInfo``/``subOrders``, как здесь
+    предполагается. Эти имена взяты из документации к старой версии API.
+    Функция останется рабочей для такого формата, но настоящую раскладку надо
+    дописать по ответу, где ``global.orderCount > 0``.
+
+    Пока такого ответа нет, заказы Taobao из WebView сохраняться не будут —
+    ingest их просто не опознает и молча пропустит.
     """
     order_info = raw.get("orderInfo") if isinstance(raw.get("orderInfo"), dict) else {}
     status_info = raw.get("statusInfo") if isinstance(raw.get("statusInfo"), dict) else {}
