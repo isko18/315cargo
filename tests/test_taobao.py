@@ -201,3 +201,51 @@ def test_sync_without_connection_is_noop(user):
     result = service.sync_orders()
     assert result.synced == 0
     assert "не подключён" in result.message
+
+
+@pytest.mark.django_db
+def test_parse_check_command_reads_jsonp_and_writes_nothing(tmp_path):
+    """Проверка раскладки полей на реальном ответе — без записи в базу."""
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    payload = (
+        'mtopjsonp1({"data":{"orders":['
+        '{"id":"TB-CHK","statusInfo":{"text":"卖家已发货"},'
+        '"payInfo":{"actualFee":"268.00"},"logisticsInfo":{"mailNo":"SF-1"},'
+        '"subOrders":[{"title":"Куртка","quantity":1}]},'
+        '{"id":"TB-CANCEL","statusInfo":{"text":"交易关闭"}}]}})'
+    )
+    src = tmp_path / "orders.json"
+    src.write_text(payload, encoding="utf-8")
+    out = StringIO()
+    call_command(
+        "marketplace_parse_check", "--marketplace", "taobao", "--file", str(src), stdout=out
+    )
+    text = out.getvalue()
+
+    assert "TB-CHK" in text
+    assert "268.00" in text
+    assert "SF-1" in text
+    assert "отфильтровано 1" in text
+    assert "совпала полностью" in text
+    # Команда только показывает — ничего не создаёт.
+    assert not Order.objects.filter(external_order_id="TB-CHK").exists()
+
+
+@pytest.mark.django_db
+def test_parse_check_flags_unknown_layout(tmp_path):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    src = tmp_path / "orders.json"
+    src.write_text('[{"orderId":"X-1","orderStatus":"等待卖家发货"}]', encoding="utf-8")
+    out = StringIO()
+    call_command(
+        "marketplace_parse_check", "--marketplace", "taobao", "--file", str(src), stdout=out
+    )
+    text = out.getvalue()
+    assert "НЕ ОПОЗНАН" in text
+    assert "не совпала" in text
