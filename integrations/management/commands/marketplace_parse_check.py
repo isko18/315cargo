@@ -10,7 +10,11 @@
 На вход принимается что угодно из перечисленного:
   * массив заказов;
   * полный ответ mtop/PDD — заказы находятся сами (data.orders, result и т.п.);
-  * JSONP-обёртка ``mtopjsonp1({...})`` — скобки снимаются.
+  * JSONP-обёртка ``mtopjsonp1({...})`` — скобки снимаются;
+  * **HAR-файл** из DevTools (вкладка Network → «Export HAR») — нужный ответ
+    находится сам, искать конкретный запрос вручную не нужно.
+
+HAR содержит куки и заголовки сессии — после разбора файл лучше удалить.
 """
 
 import json
@@ -30,6 +34,26 @@ def _strip_jsonp(text: str) -> str:
     text = text.strip()
     match = re.match(r"^[A-Za-z_$][\w$]*\s*\((.*)\)\s*;?$", text, re.DOTALL)
     return match.group(1) if match else text
+
+
+# По этим признакам отличаем ответ со списком заказов от прочего трафика.
+ORDER_MARKERS = ("orderId", "orderCount", "bizOrderId", "order_sn", "tradeId")
+
+
+def _orders_from_har(payload):
+    """HAR из DevTools → список (URL, тело) ответов, похожих на заказы."""
+    entries = (payload.get("log") or {}).get("entries")
+    if not isinstance(entries, list):
+        return None
+    found = []
+    for entry in entries:
+        response = entry.get("response") or {}
+        text = (response.get("content") or {}).get("text") or ""
+        if not text or not any(marker in text for marker in ORDER_MARKERS):
+            continue
+        url = (entry.get("request") or {}).get("url") or ""
+        found.append((url, text))
+    return found
 
 
 def _find_orders(node, depth=0):
@@ -81,6 +105,29 @@ class Command(BaseCommand):
         except json.JSONDecodeError as exc:
             raise CommandError(f"Не похоже на JSON: {exc}") from exc
 
+        # HAR: внутри десятки запросов, нужный ищем сами.
+        har_responses = _orders_from_har(payload)
+        if har_responses is not None:
+            if not har_responses:
+                raise CommandError(
+                    "В HAR нет ответов, похожих на список заказов. Откройте "
+                    "страницу заказов и прокрутите её, затем экспортируйте HAR "
+                    "заново."
+                )
+            self.stdout.write(
+                f"HAR: подходящих ответов — {len(har_responses)}\n"
+            )
+            for url, text in har_responses:
+                api = url.split("/h5/")[-1].split("/")[0] if "/h5/" in url else url[:80]
+                self.stdout.write(self.style.MIGRATE_HEADING(f"\n>>> {api}"))
+                try:
+                    body = json.loads(_strip_jsonp(text))
+                except json.JSONDecodeError:
+                    self.stdout.write("  тело не разобралось как JSON")
+                    continue
+                self._report(marketplace, body)
+            return
+
         # Ответ без сессии приходит с кодом 200 и пустым data — по HTTP его не
         # отличить от нормального. Проверяем конверт mtop, иначе человек будет
         # думать, что сломался разбор, хотя на деле нужно просто перелогиниться.
@@ -97,6 +144,9 @@ class Command(BaseCommand):
 
         # У маркетплейсов с деревом компонентов (Taobao) заказы собираются из
         # ответа целиком — обычный поиск списка тут не работает.
+        self._report(marketplace, payload)
+
+    def _report(self, marketplace, payload):
         orders = marketplace.extract(payload) if marketplace.extract else None
         if not orders:
             orders = _find_orders(payload)
