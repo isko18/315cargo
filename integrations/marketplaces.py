@@ -23,11 +23,18 @@ from orders.models import Order
 PINDUODUO = "pinduoduo"
 TAOBAO = "taobao"
 
-# Статусы, которые нам интересны. Всё, что не оплачено/отменено/возвращено,
-# в заказы не попадает: карго везёт только реально купленное.
-STATUS_PAID = "paid"          # оплачен, ждёт отправки
-STATUS_SHIPPED = "shipped"    # отправлен / в пути
-STATUS_DELIVERED = "delivered"  # получен продавцом-складом / завершён
+# Наши статусы заказа. Раньше всё, кроме оплаченного, выбрасывалось — клиент
+# не видел в приложении ни отменённых, ни неоплаченных заказов и думал, что они
+# потерялись. Теперь сохраняем всё, а физическую посылку заводим только под то,
+# что реально поедет.
+STATUS_UNPAID = "pending_payment"  # ждёт оплаты
+STATUS_PAID = "paid"               # оплачен, ждёт отправки
+STATUS_SHIPPED = "shipped"         # отправлен / в пути
+STATUS_DELIVERED = "delivered"     # доставлен продавцом / сделка завершена
+STATUS_CANCELLED = "cancelled"     # отменён, закрыт, возврат
+
+# Под эти статусы посылку не создаём: товара физически не будет.
+STATUSES_WITHOUT_PARCEL = frozenset({STATUS_UNPAID, STATUS_CANCELLED})
 
 
 def _decimal_from_fen(value):
@@ -47,21 +54,38 @@ def _decimal_from_yuan(value):
         return None
 
 
-# Формулировки статусов у обоих маркетплейсов китайские и различаются, но
-# ключевые слова общие — держим их в одном месте.
-_CANCELLED_WORDS = ("取消", "待付款", "待支付", "退款", "已退款", "关闭")
-_DONE_WORDS = ("交易成功", "已完成", "已收货", "已签收", "待评价")
-_SHIPPED_WORDS = ("待收货", "已发货", "运输", "已送达")
+# Формулировки китайские и у PDD с Taobao различаются, но словарь общий.
+# Порядок проверки важен: «待评价» (ждёт отзыва) содержит «待», как и «待付款»,
+# поэтому сначала ищем завершённые, потом отправленные, и только затем ожидание
+# оплаты.
+_CANCELLED_WORDS = (
+    "取消", "已关闭", "交易关闭", "关闭", "退款", "已退款", "退货", "已退货", "失效",
+)
+_DONE_WORDS = ("交易成功", "已完成", "已收货", "已签收", "待评价", "评价")
+_SHIPPED_WORDS = ("待收货", "已发货", "卖家已发货", "运输", "已送达", "派送", "配送中")
+_UNPAID_WORDS = ("待付款", "待支付", "等待付款", "等待买家付款", "未付款")
+_PAID_WORDS = ("买家已付款", "已付款", "待发货", "等待发货", "等待商家发货", "等待卖家发货", "备货")
 
 
-def _status_from_prompt(prompt: str, track: str):
-    """Китайская подпись статуса → наш статус. None — заказ не нужен."""
-    if any(word in prompt for word in _CANCELLED_WORDS):
-        return None
-    if any(word in prompt for word in _DONE_WORDS):
+def _status_from_prompt(prompt: str, track: str = ""):
+    """Китайская подпись статуса → наш статус.
+
+    Заказ никогда не выбрасывается: незнакомая формулировка считается
+    оплаченной (клиент видит заказ и может уточнить), а не теряется молча.
+    """
+    text = prompt or ""
+    if any(word in text for word in _CANCELLED_WORDS):
+        return STATUS_CANCELLED
+    if any(word in text for word in _DONE_WORDS):
         return STATUS_DELIVERED
-    if track or any(word in prompt for word in _SHIPPED_WORDS):
+    if track or any(word in text for word in _SHIPPED_WORDS):
         return STATUS_SHIPPED
+    if any(word in text for word in _UNPAID_WORDS):
+        return STATUS_UNPAID
+    if any(word in text for word in _PAID_WORDS):
+        return STATUS_PAID
+    # Формулировок у маркетплейсов десятки и они меняются: неизвестную считаем
+    # активным заказом, иначе заказ пропадёт из приложения без следа.
     return STATUS_PAID
 
 
@@ -72,8 +96,6 @@ def normalize_pinduoduo_order(raw: dict):
         return None
     track = str(raw.get("tracking_number") or "").strip()
     status = _status_from_prompt(str(raw.get("order_status_prompt") or ""), track)
-    if status is None:
-        return None
 
     goods = raw.get("order_goods")
     goods = goods if isinstance(goods, list) else []
@@ -219,8 +241,6 @@ def normalize_taobao_order(raw: dict):
 
     track = _deep_find(parts, _TRACK_KEY_RE) or ""
     status = _status_from_prompt(prompt, track)
-    if status is None:
-        return None
 
     titles, quantity = [], 0
     for item_fields in parts.get("item", []):

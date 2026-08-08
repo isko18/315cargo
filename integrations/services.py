@@ -20,7 +20,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from common.audit import log_audit
-from integrations.marketplaces import PINDUODUO, TAOBAO, get_marketplace
+from integrations.marketplaces import (
+    PINDUODUO,
+    STATUSES_WITHOUT_PARCEL,
+    TAOBAO,
+    get_marketplace,
+)
 from integrations.models import MarketplaceAccount
 from notifications.models import NotificationType
 from notifications.services import notify
@@ -293,7 +298,9 @@ class MarketplaceSyncService:
             result.created += 1
         else:
             result.updated += 1
-        if create_parcels:
+        # Неоплаченный и отменённый заказ в приложении показываем, но посылку
+        # под него не заводим: физически везти нечего.
+        if create_parcels and (payload.get("status") or "") not in STATUSES_WITHOUT_PARCEL:
             self._sync_parcel_for_order(order)
 
     def _expand(self, orders):

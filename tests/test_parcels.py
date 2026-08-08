@@ -247,3 +247,51 @@ def test_csv_import_reports_unknown_client(user):
     assert result.created == 0
     assert result.skipped == 1
     assert any("не найден" in err for err in result.errors)
+
+
+# --- Маркетплейс у посылки: мобилка фильтрует по нему ----------------------
+
+
+@pytest.mark.django_db
+def test_parcel_exposes_marketplace_source(auth_client):
+    """Клиент должен видеть, с какого маркетплейса посылка."""
+    from orders.models import Order
+
+    order = Order.objects.create(
+        user=auth_client.user, source=Order.Source.TAOBAO, external_order_id="TB-SRC"
+    )
+    ParcelFactory(user=auth_client.user, order=order, track_number="SRC-TB")
+    # Посылка со сканера — заказа нет вовсе.
+    ParcelFactory(user=auth_client.user, order=None, track_number="SRC-SCAN")
+
+    rows = {p["track_number"]: p for p in auth_client.get("/api/parcels/").data}
+    assert rows["SRC-TB"]["source"] == "taobao"
+    assert rows["SRC-TB"]["source_display_name"] == "Taobao"
+    # Без заказа посылка считается заведённой вручную, а не выпадает из ответа.
+    assert rows["SRC-SCAN"]["source"] == "manual"
+
+
+@pytest.mark.django_db
+def test_parcels_filter_by_marketplace(auth_client):
+    from orders.models import Order
+
+    tb = Order.objects.create(
+        user=auth_client.user, source=Order.Source.TAOBAO, external_order_id="F-TB"
+    )
+    pdd = Order.objects.create(
+        user=auth_client.user, source=Order.Source.PINDUODUO, external_order_id="F-PDD"
+    )
+    ParcelFactory(user=auth_client.user, order=tb, track_number="F-TRACK-TB")
+    ParcelFactory(user=auth_client.user, order=pdd, track_number="F-TRACK-PDD")
+    ParcelFactory(user=auth_client.user, order=None, track_number="F-TRACK-SCAN")
+
+    def tracks(query):
+        return {p["track_number"] for p in auth_client.get(f"/api/parcels/?{query}").data}
+
+    assert tracks("source=taobao") == {"F-TRACK-TB"}
+    assert tracks("source=pinduoduo") == {"F-TRACK-PDD"}
+    # «Вручную» включает и посылки со сканера, у которых заказа нет.
+    assert tracks("source=manual") == {"F-TRACK-SCAN"}
+    assert tracks("source_in=taobao,pinduoduo") == {"F-TRACK-TB", "F-TRACK-PDD"}
+    # Без фильтра — все, ничего не теряется.
+    assert tracks("") >= {"F-TRACK-TB", "F-TRACK-PDD", "F-TRACK-SCAN"}

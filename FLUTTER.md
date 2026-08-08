@@ -712,6 +712,8 @@ class Parcel {
   final double? weight;
   final double? volume;
   final double? deliveryPrice;   // в сомах (KGS), раньше было в долларах
+  final String source;           // pinduoduo | taobao | 1688 | manual
+  final String sourceDisplayName;
   final DateTime? arrivedAt;
   final DateTime? issuedAt;
   final DateTime createdAt;
@@ -927,7 +929,25 @@ ParcelStatus parseParcelStatus(String value) => switch (value) {
 | GET | `/api/parcels/{id}/` | да | Детали |
 | GET | `/api/parcels/{id}/history/` | да | История статусов |
 
-**Фильтры:** `status`, `track_number`, `date_from`, `date_to`
+**Фильтры:** `status`, `status_in`, `track_number`, `date_from`, `date_to`,
+**`source`**, **`source_in`**
+
+**Маркетплейс посылки.** У каждой посылки есть источник — по нему в приложении
+делается фильтр «откуда посылка»:
+
+| Поле | Значение |
+|---|---|
+| `source` | `pinduoduo`, `taobao`, `1688`, `manual` |
+| `source_display_name` | готовая подпись: «Pinduoduo», «Taobao», «Вручную» |
+
+Посылка, заведённая сканером на складе (без заказа), приходит как `manual` —
+из выдачи она не выпадает.
+
+```
+GET /api/parcels/?source=taobao
+GET /api/parcels/?source_in=taobao,pinduoduo
+GET /api/parcels/                     ← все, без фильтра
+```
 
 **Статусы посылки (жизненный цикл):**
 

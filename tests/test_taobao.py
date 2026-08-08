@@ -184,20 +184,57 @@ def test_completed_order_marked_arrived(auth_client):
 
 
 @pytest.mark.django_db
-def test_cancelled_and_unpaid_are_filtered(auth_client):
+def test_all_statuses_are_saved_with_correct_status(auth_client):
+    """Клиент должен видеть все свои заказы, включая отменённые и неоплаченные."""
     payload = response_with(
         {"id": "8800000000000000003", "status": "交易关闭", "fee": "99,00 сом", "title": "Отменённый"},
         {"id": "8800000000000000004", "status": "待付款", "fee": "10,00 сом", "title": "Неоплаченный"},
         {"id": "8800000000000000005", "status": "买家已付款", "fee": "12,00 сом", "title": "Оплаченный"},
+        {"id": "8800000000000000007", "status": "已退款", "fee": "15,00 сом", "title": "Возврат"},
     )
     response = auth_client.post(
         "/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json"
     )
 
-    assert response.data["created"] == 1
-    assert Order.objects.filter(external_order_id="8800000000000000005").exists()
-    assert not Order.objects.filter(external_order_id="8800000000000000003").exists()
-    assert not Order.objects.filter(external_order_id="8800000000000000004").exists()
+    assert response.data["created"] == 4  # сохраняем всё
+    statuses = dict(
+        Order.objects.filter(source=Order.Source.TAOBAO).values_list(
+            "external_order_id", "status"
+        )
+    )
+    assert statuses["8800000000000000003"] == Order.Status.CANCELLED
+    assert statuses["8800000000000000004"] == Order.Status.CREATED
+    assert statuses["8800000000000000005"] == Order.Status.PAID
+    assert statuses["8800000000000000007"] == Order.Status.CANCELLED
+
+
+@pytest.mark.django_db
+def test_no_parcel_for_cancelled_and_unpaid(auth_client):
+    """Заказ показываем, но посылку не заводим: везти нечего."""
+    from parcels.models import Parcel
+
+    payload = response_with(
+        {"id": "8800000000000000008", "status": "交易关闭", "title": "Отменённый"},
+        {"id": "8800000000000000009", "status": "待付款", "title": "Неоплаченный"},
+        {"id": "8800000000000000010", "status": "买家已付款", "title": "Оплаченный"},
+    )
+    auth_client.post("/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json")
+
+    assert not Parcel.objects.filter(track_number="8800000000000000008").exists()
+    assert not Parcel.objects.filter(track_number="8800000000000000009").exists()
+    assert Parcel.objects.filter(track_number="8800000000000000010").exists()
+
+
+@pytest.mark.django_db
+def test_unknown_status_wording_is_not_lost(auth_client):
+    """Формулировок десятки и они меняются — незнакомая не должна терять заказ."""
+    payload = response_with(
+        {"id": "8800000000000000011", "status": "某种新状态", "fee": "20,00 сом", "title": "Новый статус"}
+    )
+    auth_client.post("/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json")
+
+    order = Order.objects.get(external_order_id="8800000000000000011")
+    assert order.status == Order.Status.PAID  # считаем активным, а не выбрасываем
 
 
 @pytest.mark.django_db

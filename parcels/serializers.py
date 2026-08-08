@@ -14,12 +14,30 @@ class ParcelSerializer(serializers.ModelSerializer):
     client_phone = serializers.CharField(source="user.phone", read_only=True, default=None)
     # ПВЗ приёмки (физический) в приоритете; иначе — ПВЗ клиента (адресат).
     pickup_point_title = serializers.SerializerMethodField()
+    # Откуда посылка: Pinduoduo, Taobao, вручную. Мобилка фильтрует по нему.
+    source = serializers.SerializerMethodField()
+    source_display_name = serializers.SerializerMethodField()
 
     def get_pickup_point_title(self, obj):
         if obj.pickup_point_id:
             return obj.pickup_point.title
         user_pp = getattr(obj.user, "pickup_point", None) if obj.user_id else None
         return user_pp.title if user_pp else None
+
+    def get_source(self, obj):
+        """Источник заказа. Посылка со сканера (без заказа) — «вручную»."""
+        from orders.models import Order
+
+        return obj.order.source if obj.order_id else Order.Source.MANUAL
+
+    def get_source_display_name(self, obj):
+        from orders.models import Order
+
+        return (
+            obj.order.get_source_display()
+            if obj.order_id
+            else Order.Source.MANUAL.label
+        )
 
     def get_product_title(self, obj):
         return obj.order.product_title if obj.order_id else None
@@ -48,6 +66,8 @@ class ParcelSerializer(serializers.ModelSerializer):
             "pickup_point_title",
             "status",
             "status_display_name",
+            "source",
+            "source_display_name",
             "product_title",
             "product_price",
             "product_image",
@@ -143,6 +163,21 @@ class OperationHistorySerializer(serializers.ModelSerializer):
         if obj.status in (Parcel.Status.ARRIVED_CHINA_WAREHOUSE, Parcel.Status.SENT_TO_KYRGYZSTAN):
             return "china"
         return "receive"
+
+    def get_source(self, obj):
+        """Источник заказа. Посылка со сканера (без заказа) — «вручную»."""
+        from orders.models import Order
+
+        return obj.order.source if obj.order_id else Order.Source.MANUAL
+
+    def get_source_display_name(self, obj):
+        from orders.models import Order
+
+        return (
+            obj.order.get_source_display()
+            if obj.order_id
+            else Order.Source.MANUAL.label
+        )
 
     def get_product_title(self, obj):
         order = getattr(obj.parcel, "order", None)

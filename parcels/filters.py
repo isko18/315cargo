@@ -20,6 +20,29 @@ class ParcelFilter(CreatedAtDateRangeFilter):
     pickup_point = django_filters.NumberFilter(method="filter_pickup_point")
     # Архив (выданные посылки). По умолчанию склад показывает активные.
     archived = django_filters.BooleanFilter(field_name="is_archived")
+    # Маркетплейс: ?source=taobao или ?source_in=taobao,pinduoduo.
+    # Посылки со сканера заказа не имеют — их отдаём как «вручную».
+    source = django_filters.CharFilter(method="filter_source")
+    source_in = django_filters.BaseInFilter(method="filter_source_in")
+
+    def filter_source(self, queryset, name, value):
+        return self._by_sources(queryset, [value])
+
+    def filter_source_in(self, queryset, name, value):
+        return self._by_sources(queryset, value or [])
+
+    @staticmethod
+    def _by_sources(queryset, values):
+        from orders.models import Order
+
+        wanted = {str(v).strip() for v in values if str(v).strip()}
+        if not wanted:
+            return queryset
+        condition = Q(order__source__in=wanted)
+        if Order.Source.MANUAL in wanted:
+            # «Вручную» — это и заказы с source=manual, и посылки без заказа.
+            condition |= Q(order__isnull=True)
+        return queryset.filter(condition)
 
     def filter_search(self, queryset, name, value):
         value = (value or "").strip()
@@ -55,6 +78,8 @@ class ParcelFilter(CreatedAtDateRangeFilter):
             "pending",
             "pickup_point",
             "archived",
+            "source",
+            "source_in",
             "date_from",
             "date_to",
         )

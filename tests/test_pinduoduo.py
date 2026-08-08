@@ -167,7 +167,7 @@ def test_ingest_raw_pdd_filters_and_parses(auth_client):
         "/api/integrations/pinduoduo/ingest/", {"orders": raw_orders}, format="json"
     )
     assert r.status_code == 200, r.data
-    assert r.data["created"] == 2  # отменённый отфильтрован
+    assert r.data["created"] == 3  # сохраняем всё, включая отменённый
 
     user = auth_client.user
     paid = Order.objects.get(user=user, external_order_id="260624-AAA")
@@ -176,8 +176,10 @@ def test_ingest_raw_pdd_filters_and_parses(auth_client):
     assert paid.product_title == "Органайзер"
     # посылка создаётся и для «ждёт отправки» — по номеру заказа (трека ещё нет)
     assert Parcel.objects.filter(track_number="260624-AAA", user=user).exists()
-    # отменённый не сохранён
-    assert not Order.objects.filter(external_order_id="260622-CANCEL").exists()
+    # Отменённый теперь сохраняется — но со статусом «Отменён» и без посылки.
+    cancelled = Order.objects.get(user=user, external_order_id="260622-CANCEL")
+    assert cancelled.status == Order.Status.CANCELLED
+    assert not Parcel.objects.filter(track_number="260622-CANCEL").exists()
 
     ship = Order.objects.get(user=user, external_order_id="260620-SHIP")
     assert str(ship.price) == "1057.30"
@@ -187,12 +189,12 @@ def test_ingest_raw_pdd_filters_and_parses(auth_client):
 
 
 @pytest.mark.django_db
-def test_ingest_normalized_with_raw_is_filtered(auth_client):
+def test_ingest_normalized_with_raw_uses_raw_status(auth_client):
     # Старое приложение шлёт нормализованный payload, но с сырым заказом в `raw`.
     # Сервер всё равно фильтрует по raw и проставляет статус/цену.
     payload = {
         "orders": [
-            {  # отменённый внутри raw → отбрасывается, несмотря на external_order_id
+            {  # отменённый внутри raw → сохраняется со статусом «Отменён»
                 "external_order_id": "260622-CANCEL",
                 "status": "created",
                 "raw": {
@@ -219,8 +221,12 @@ def test_ingest_normalized_with_raw_is_filtered(auth_client):
         "/api/integrations/pinduoduo/ingest/", payload, format="json"
     )
     assert r.status_code == 200, r.data
-    assert r.data["created"] == 1  # отменённый отфильтрован
-    assert not Order.objects.filter(external_order_id="260622-CANCEL").exists()
+    assert r.data["created"] == 2  # сохраняем оба, статусы разные
+    # Отменённый распознан по вложенному raw, а не по внешнему status.
+    assert (
+        Order.objects.get(external_order_id="260622-CANCEL").status
+        == Order.Status.CANCELLED
+    )
     done = Order.objects.get(external_order_id="260620-DONE")
     assert done.status == Order.Status.ARRIVED_CHINA_WAREHOUSE  # получен
     assert str(done.price) == "50.00"
