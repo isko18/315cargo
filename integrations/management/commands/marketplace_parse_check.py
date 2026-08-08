@@ -95,7 +95,11 @@ class Command(BaseCommand):
             if not code.startswith("SUCCESS"):
                 self.stdout.write(self.style.WARNING(f"Маркетплейс вернул: {code}"))
 
-        orders = _find_orders(payload)
+        # У маркетплейсов с деревом компонентов (Taobao) заказы собираются из
+        # ответа целиком — обычный поиск списка тут не работает.
+        orders = marketplace.extract(payload) if marketplace.extract else None
+        if not orders:
+            orders = _find_orders(payload)
         if orders is None:
             raise CommandError(
                 "Не нашёл список заказов в ответе. Пришлите массив заказов "

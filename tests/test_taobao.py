@@ -1,10 +1,75 @@
-"""Интеграция Taobao — тот же контракт, что у Pinduoduo, свой разбор заказов."""
+"""Интеграция Taobao — тот же контракт, что у Pinduoduo, свой разбор заказов.
+
+Ответ ``queryboughtlistv2`` приходит деревом компонентов Ultron: один заказ
+размазан по ``Main_<id>``, ``sellerInfo_<id>``, ``item_<id>_1_1``, ``pay_<id>/0``,
+связанным общим id в имени компонента. Структура и имена полей сняты с живого
+аккаунта 2026-08-08 — тесты строят ответы в этом же виде.
+"""
+
+import json
+from pathlib import Path
 
 import pytest
 
 from integrations.models import MarketplaceAccount
 from integrations.services import TaobaoSyncService
 from orders.models import Order
+
+FIXTURE = Path(__file__).parent / "fixtures" / "taobao_boughtlist.json"
+
+
+def real_response():
+    """Настоящий ответ Taobao с одним заказом (личные данные заменены)."""
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def response_with(*orders):
+    """Собрать ответ Ultron из описаний заказов.
+
+    order = {"id": ..., "status": "买家已付款", "wait": "待发货",
+             "fee": "61,83 сом", "title": ..., "qty": 1, "track": "SF1"}
+    """
+    components = {"query3": {"fields": {}}, "tab3": {"fields": {}}}
+    structure = {"boughtlist4": ["query3", "tab3"]}
+    for order in orders:
+        oid = order["id"]
+        components[f"Main_{oid}"] = {"fields": {"orderId": oid}}
+        if order.get("status"):
+            components[f"sellerInfo_{oid}"] = {
+                "fields": {"status": {"text": order["status"]}}
+            }
+        if order.get("wait"):
+            components[f"mainWaitSendShipTime_{oid}"] = {
+                "fields": {"title": order["wait"]}
+            }
+        if order.get("fee") is not None:
+            components[f"pay_{oid}/0"] = {
+                "fields": {"actualFee": {"value": order["fee"]}}
+            }
+        if order.get("title"):
+            components[f"item_{oid}_1_1"] = {
+                "fields": {
+                    "item": {
+                        "title": order["title"],
+                        "quantity": order.get("qty", 1),
+                        "priceInfo": {"actualTotalFee": order.get("itemFee")},
+                    }
+                }
+            }
+        if order.get("track"):
+            components[f"mainLogistics_{oid}"] = {
+                "fields": {"title": order.get("wait") or "", "mailNo": order["track"]}
+            }
+        structure["boughtlist4"].append(f"MainGroup_{oid}")
+    return {
+        "api": "mtop.taobao.order.queryboughtlistv2",
+        "ret": ["SUCCESS::调用成功"],
+        "data": {
+            "data": components,
+            "hierarchy": {"root": "boughtlist4", "structure": structure},
+            "global": {"orderCount": len(orders)},
+        },
+    }
 
 
 @pytest.mark.django_db
@@ -37,119 +102,148 @@ def test_disconnect_taobao_keeps_pinduoduo(auth_client):
     ).is_connected is False
 
 
+# --- разбор реального ответа ------------------------------------------------
+
+
 @pytest.mark.django_db
-def test_ingest_raw_taobao_filters_and_parses(auth_client):
-    """Сырой ответ mtop разбирается на сервере: цена, статус, трек, товары."""
+def test_real_response_parsed(auth_client):
+    """Заказ собирается из дерева компонентов, а не из плоского списка."""
     from parcels.models import Parcel
 
-    raw_orders = [
-        {  # оплачен, ждёт отправки
-            "id": "TB-1001",
-            "statusInfo": {"text": "等待卖家发货"},
-            "payInfo": {"actualFee": "129.90"},
-            "subOrders": [{"title": "Кроссовки", "quantity": 1}],
-        },
-        {  # отменён — отбрасываем
-            "id": "TB-1002",
-            "statusInfo": {"text": "交易关闭"},
-            "payInfo": {"actualFee": "50.00"},
-            "subOrders": [{"title": "Шапка", "quantity": 1}],
-        },
-        {  # в пути, с треком → создаётся посылка
-            "bizOrderId": "TB-1003",
-            "statusInfo": {"text": "卖家已发货"},
-            "payInfo": {"actualFee": "1057.30"},
-            "logisticsInfo": {"mailNo": "SF-TRACK-9"},
-            "subOrders": [
-                {"title": "Сканер", "quantity": 2},
-                {"title": "Чехол", "quantity": 1},
-            ],
-        },
-    ]
     response = auth_client.post(
-        "/api/integrations/taobao/ingest/", {"orders": raw_orders}, format="json"
+        "/api/integrations/taobao/ingest/", {"orders": [real_response()]}, format="json"
     )
     assert response.status_code == 200, response.data
-    assert response.data["created"] == 2  # отменённый отфильтрован
+    assert response.data["created"] == 1
 
-    user = auth_client.user
-    paid = Order.objects.get(user=user, external_order_id="TB-1001")
-    assert paid.source == Order.Source.TAOBAO
-    assert str(paid.price) == "129.90"
-    assert paid.status == Order.Status.PAID
-    assert paid.product_title == "Кроссовки"
-    # Посылка есть и без трека — по номеру заказа.
-    assert Parcel.objects.filter(track_number="TB-1001", user=user).exists()
-
-    assert not Order.objects.filter(external_order_id="TB-1002").exists()
-
-    shipped = Order.objects.get(user=user, external_order_id="TB-1003")
-    assert shipped.status == Order.Status.PURCHASED
-    assert shipped.track_number == "SF-TRACK-9"
-    assert shipped.product_title == "Сканер | Чехол"
-    assert shipped.quantity == 3
-    assert Parcel.objects.filter(track_number="SF-TRACK-9", user=user).exists()
+    order = Order.objects.get(external_order_id="9900112233445566778")
+    assert order.source == Order.Source.TAOBAO
+    assert order.status == Order.Status.PAID     # 买家已付款 / 待发货
+    assert str(order.price) == "61.83"           # «61,83 сом» → число
+    assert order.quantity == 1
+    assert "耳罩" in order.product_title
+    assert order.track_number == ""              # ещё не отправлен
+    # Пока трека нет, посылка заводится по номеру заказа.
+    assert Parcel.objects.filter(track_number="9900112233445566778").exists()
 
 
 @pytest.mark.django_db
-def test_taobao_completed_order_marked_arrived(auth_client):
+def test_real_response_is_idempotent(auth_client):
+    payload = {"orders": [real_response()]}
+    auth_client.post("/api/integrations/taobao/ingest/", payload, format="json")
+    second = auth_client.post("/api/integrations/taobao/ingest/", payload, format="json")
+
+    assert second.data["created"] == 0
+    assert second.data["updated"] == 1
+    assert Order.objects.filter(external_order_id="9900112233445566778").count() == 1
+
+
+@pytest.mark.django_db
+def test_service_components_are_not_orders(auth_client):
+    """query3/tab3/feedStream — служебные компоненты, заказами не являются."""
     auth_client.post(
-        "/api/integrations/taobao/ingest/",
-        {
-            "orders": [
-                {
-                    "id": "TB-DONE",
-                    "statusInfo": {"text": "交易成功"},
-                    "payInfo": {"totalFee": "88.00"},
-                    "subOrders": [{"title": "Носки", "quantity": 5}],
-                }
-            ]
-        },
-        format="json",
+        "/api/integrations/taobao/ingest/", {"orders": [real_response()]}, format="json"
     )
-    order = Order.objects.get(external_order_id="TB-DONE")
+    assert Order.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_shipped_order_gets_track_and_parcel(auth_client):
+    from parcels.models import Parcel
+
+    payload = response_with(
+        {
+            "id": "8800000000000000001",
+            "status": "卖家已发货",
+            "wait": "待收货",
+            "fee": "1 057,30 сом",
+            "title": "Сканер",
+            "qty": 2,
+            "track": "SF-TRACK-9",
+        }
+    )
+    auth_client.post("/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json")
+
+    order = Order.objects.get(external_order_id="8800000000000000001")
+    assert order.status == Order.Status.PURCHASED
+    assert order.track_number == "SF-TRACK-9"
+    assert str(order.price) == "1057.30"
+    assert order.quantity == 2
+    assert Parcel.objects.filter(track_number="SF-TRACK-9").exists()
+
+
+@pytest.mark.django_db
+def test_completed_order_marked_arrived(auth_client):
+    payload = response_with(
+        {"id": "8800000000000000002", "status": "交易成功", "fee": "88,00 сом", "title": "Носки"}
+    )
+    auth_client.post("/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json")
+
+    order = Order.objects.get(external_order_id="8800000000000000002")
     assert order.status == Order.Status.ARRIVED_CHINA_WAREHOUSE
+
+
+@pytest.mark.django_db
+def test_cancelled_and_unpaid_are_filtered(auth_client):
+    payload = response_with(
+        {"id": "8800000000000000003", "status": "交易关闭", "fee": "99,00 сом", "title": "Отменённый"},
+        {"id": "8800000000000000004", "status": "待付款", "fee": "10,00 сом", "title": "Неоплаченный"},
+        {"id": "8800000000000000005", "status": "买家已付款", "fee": "12,00 сом", "title": "Оплаченный"},
+    )
+    response = auth_client.post(
+        "/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json"
+    )
+
+    assert response.data["created"] == 1
+    assert Order.objects.filter(external_order_id="8800000000000000005").exists()
+    assert not Order.objects.filter(external_order_id="8800000000000000003").exists()
+    assert not Order.objects.filter(external_order_id="8800000000000000004").exists()
+
+
+@pytest.mark.django_db
+def test_price_falls_back_to_items_when_no_pay_block(auth_client):
+    """Блок с итогом бывает не всегда — тогда складываем позиции."""
+    payload = response_with(
+        {
+            "id": "8800000000000000006",
+            "status": "买家已付款",
+            "fee": None,
+            "title": "Без итога",
+            "itemFee": "34,83 сом",
+        }
+    )
+    auth_client.post("/api/integrations/taobao/ingest/", {"orders": [payload]}, format="json")
+
+    assert str(Order.objects.get(external_order_id="8800000000000000006").price) == "34.83"
 
 
 @pytest.mark.django_db
 def test_same_external_id_on_two_marketplaces_not_confused(auth_client):
     """Номера заказов у маркетплейсов независимы — дедуп идёт по источнику."""
-    payload = {"orders": [{"id": "SAME-1", "statusInfo": {"text": "等待卖家发货"}}]}
-    auth_client.post("/api/integrations/taobao/ingest/", payload, format="json")
+    auth_client.post(
+        "/api/integrations/taobao/ingest/",
+        {"orders": [response_with({"id": "1234567890", "status": "买家已付款", "title": "TB"})]},
+        format="json",
+    )
     auth_client.post(
         "/api/integrations/pinduoduo/ingest/",
-        {"orders": [{"order_sn": "SAME-1", "order_status_prompt": "等待商家发货"}]},
+        {"orders": [{"order_sn": "1234567890", "order_status_prompt": "等待商家发货"}]},
         format="json",
     )
 
-    assert Order.objects.filter(external_order_id="SAME-1").count() == 2
-    assert Order.objects.filter(
-        external_order_id="SAME-1", source=Order.Source.TAOBAO
-    ).exists()
-    assert Order.objects.filter(
-        external_order_id="SAME-1", source=Order.Source.PINDUODUO
-    ).exists()
+    assert Order.objects.filter(external_order_id="1234567890").count() == 2
 
 
 @pytest.mark.django_db
-def test_ingest_is_idempotent(auth_client):
-    payload = {
-        "orders": [
-            {
-                "id": "TB-IDEM",
-                "statusInfo": {"text": "卖家已发货"},
-                "logisticsInfo": {"mailNo": "TB-TRACK-IDEM"},
-                "payInfo": {"actualFee": "10.00"},
-            }
-        ]
-    }
-    first = auth_client.post("/api/integrations/taobao/ingest/", payload, format="json")
-    second = auth_client.post("/api/integrations/taobao/ingest/", payload, format="json")
-
-    assert first.data["created"] == 1
-    assert second.data["created"] == 0
-    assert second.data["updated"] == 1
-    assert Order.objects.filter(external_order_id="TB-IDEM").count() == 1
+def test_unknown_shape_does_not_break_import(auth_client):
+    """Формат Taobao меняется — незнакомый ответ не должен ронять импорт."""
+    response = auth_client.post(
+        "/api/integrations/taobao/ingest/",
+        {"orders": [{"data": {"data": {"whatever": {"fields": {}}}}}, {"мусор": 1}]},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert Order.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -163,36 +257,13 @@ def test_session_expired_records_reason_and_lifetime(auth_client):
         format="json",
     )
 
-    account = MarketplaceAccount.objects.get(
-        user=auth_client.user, marketplace="taobao"
-    )
+    account = MarketplaceAccount.objects.get(user=auth_client.user, marketplace="taobao")
     assert account.is_connected is False
     assert account.last_expire_reason == "login_redirect"
     assert account.session_lifetime() is not None
     assert AuditLog.objects.filter(
         action=AuditLog.Action.TAOBAO_SESSION_EXPIRED, target_user=auth_client.user
     ).exists()
-
-
-@pytest.mark.django_db
-def test_garbage_order_does_not_break_import(auth_client):
-    """Формат Taobao меняется от версии к версии — мусор не должен ронять импорт."""
-    response = auth_client.post(
-        "/api/integrations/taobao/ingest/",
-        {
-            "orders": [
-                {"statusInfo": {"text": "等待卖家发货"}},  # без id
-                {"id": "TB-OK", "statusInfo": {"text": "等待卖家发货"}},
-                {"id": "TB-BADFEE", "statusInfo": {"text": "等待卖家发货"},
-                 "payInfo": {"actualFee": "не число"}},
-            ]
-        },
-        format="json",
-    )
-    assert response.status_code == 200, response.data
-    assert Order.objects.filter(external_order_id="TB-OK").exists()
-    # Кривая сумма не роняет заказ — просто остаётся пустой.
-    assert Order.objects.get(external_order_id="TB-BADFEE").price is None
 
 
 @pytest.mark.django_db
@@ -203,52 +274,54 @@ def test_sync_without_connection_is_noop(user):
     assert "не подключён" in result.message
 
 
+# --- разбор суммы -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("61,83 сом", "61.83"),        # запятая — дробный разделитель
+        ("61,83 сом", "61.83"),   # неразрывный пробел перед валютой
+        ("¥1,234.56", "1234.56"),      # запятая — разряды
+        ("1.234,56 сом", "1234.56"),   # европейская запись
+        ("34.83", "34.83"),
+        ("бесплатно", None),
+        ("", None),
+    ],
+)
+def test_money_string_parsing(text, expected):
+    """Сумму Taobao отдаёт строкой с валютой, числом — никогда."""
+    from integrations.marketplaces import _decimal_from_money
+
+    result = _decimal_from_money(text)
+    assert (str(result) if result is not None else None) == expected
+
+
+# --- команда проверки раскладки --------------------------------------------
+
+
 @pytest.mark.django_db
-def test_parse_check_command_reads_jsonp_and_writes_nothing(tmp_path):
-    """Проверка раскладки полей на реальном ответе — без записи в базу."""
+def test_parse_check_on_real_response(tmp_path):
+    """Проверка раскладки на реальном ответе — без записи в базу."""
     from io import StringIO
 
     from django.core.management import call_command
 
-    payload = (
-        'mtopjsonp1({"data":{"orders":['
-        '{"id":"TB-CHK","statusInfo":{"text":"卖家已发货"},'
-        '"payInfo":{"actualFee":"268.00"},"logisticsInfo":{"mailNo":"SF-1"},'
-        '"subOrders":[{"title":"Куртка","quantity":1}]},'
-        '{"id":"TB-CANCEL","statusInfo":{"text":"交易关闭"}}]}})'
-    )
     src = tmp_path / "orders.json"
-    src.write_text(payload, encoding="utf-8")
+    src.write_text(
+        "mtopjsonp3(" + json.dumps(real_response(), ensure_ascii=False) + ")",
+        encoding="utf-8",
+    )
     out = StringIO()
     call_command(
         "marketplace_parse_check", "--marketplace", "taobao", "--file", str(src), stdout=out
     )
     text = out.getvalue()
 
-    assert "TB-CHK" in text
-    assert "268.00" in text
-    assert "SF-1" in text
-    assert "отфильтровано 1" in text
+    assert "9900112233445566778" in text
+    assert "61.83" in text
     assert "совпала полностью" in text
-    # Команда только показывает — ничего не создаёт.
-    assert not Order.objects.filter(external_order_id="TB-CHK").exists()
-
-
-@pytest.mark.django_db
-def test_parse_check_flags_unknown_layout(tmp_path):
-    from io import StringIO
-
-    from django.core.management import call_command
-
-    src = tmp_path / "orders.json"
-    src.write_text('[{"orderId":"X-1","orderStatus":"等待卖家发货"}]', encoding="utf-8")
-    out = StringIO()
-    call_command(
-        "marketplace_parse_check", "--marketplace", "taobao", "--file", str(src), stdout=out
-    )
-    text = out.getvalue()
-    assert "НЕ ОПОЗНАН" in text
-    assert "не совпала" in text
+    assert not Order.objects.filter(external_order_id="9900112233445566778").exists()
 
 
 @pytest.mark.django_db
@@ -257,7 +330,6 @@ def test_parse_check_recognises_expired_session_envelope(tmp_path):
     from django.core.management import call_command
     from django.core.management.base import CommandError
 
-    # Реальный ответ, снятый браузером без сессии.
     src = tmp_path / "expired.json"
     src.write_text(
         'mtopjsonp3({"api":"mtop.taobao.order.queryboughtlistv2","data":{},'

@@ -1,0 +1,49 @@
+{
+  "api": "mtop.taobao.order.queryboughtlistv2",
+  "v": "1.0",
+  "ret": ["SUCCESS::调用成功"],
+  "data": {
+    "data": {
+      "Main_9900112233445566778": {
+        "fields": { "orderId": "9900112233445566778", "orderStatus": "2_1" }
+      },
+      "sellerInfo_9900112233445566778": {
+        "fields": { "status": { "text": "买家已付款" } }
+      },
+      "item_9900112233445566778_1_1": {
+        "fields": {
+          "item": {
+            "title": "耳罩冬季男士耳捂子 保暖带听筒耳朵套毛绒耳暖",
+            "quantity": "1",
+            "priceInfo": { "actualTotalFee": "34,83 сом" }
+          }
+        }
+      },
+      "mainWaitSendShipTime_9900112233445566778": {
+        "fields": { "title": "待发货", "subTitle": "预计后天送达" }
+      },
+      "pay_9900112233445566778/0": {
+        "fields": { "actualFee": { "prefix": "实付款", "value": "61,83 сом" } }
+      },
+      "orderSeparator_9900112233445566778": { "fields": {} },
+      "query3": { "fields": {} },
+      "tab3": { "fields": { "tabs": [{ "tabCode": "all", "title": "全部" }] } },
+      "feedStream": { "fields": {} }
+    },
+    "hierarchy": {
+      "root": "boughtlist4",
+      "structure": {
+        "boughtlist4": ["query3", "tab3", "MainGroup_9900112233445566778", "feedStream"],
+        "MainGroup_9900112233445566778": ["Main_9900112233445566778"],
+        "Main_9900112233445566778": [
+          "sellerInfo_9900112233445566778",
+          "subGroup_9900112233445566778",
+          "mainWaitSendShipTime_9900112233445566778",
+          "pay_9900112233445566778/0",
+          "orderSeparator_9900112233445566778"
+        ]
+      }
+    },
+    "global": { "orderCount": 1 }
+  }
+}

@@ -11,6 +11,7 @@
 требовать пересборки мобильного приложения.
 """
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Callable
@@ -94,78 +95,160 @@ def normalize_pinduoduo_order(raw: dict):
     }
 
 
-def _taobao_first(raw: dict, *keys):
-    """Taobao раскладывает поля по вложенным блокам — ищем первое непустое."""
-    for key in keys:
-        value = raw.get(key)
-        if isinstance(value, dict):
-            continue
-        if value not in (None, ""):
-            return value
+def _decimal_from_money(value):
+    """Строка с суммой → Decimal. Пусто/мусор → None.
+
+    Taobao отдаёт сумму **готовой строкой с валютой**, а не числом: «61,83 сом»
+    (валюта зависит от страны аккаунта). Разделителем дробной части может быть
+    запятая, внутри встречается неразрывный пробел.
+    """
+    if value in (None, ""):
+        return None
+    text = str(value).replace("\u00a0", " ").strip()
+    match = re.search(r"\d[\d\s.,]*", text)
+    if not match:
+        return None
+    number = match.group(0).replace(" ", "")
+    if "," in number and "." in number:
+        # «1.234,56» → запятая дробная; «1,234.56» → запятая разрядная.
+        number = (
+            number.replace(",", "")
+            if number.rfind(".") > number.rfind(",")
+            else number.replace(".", "").replace(",", ".")
+        )
+    elif "," in number:
+        number = (
+            number.replace(",", ".")
+            if re.search(r",\d{1,2}$", number)
+            else number.replace(",", "")
+        )
+    try:
+        return Decimal(number).quantize(Decimal("0.01"))
+    except Exception:  # noqa: BLE001 — мусор в сумме не должен ронять импорт
+        return None
+
+
+def _deep_find(node, pattern, depth=0):
+    """Первое значение, чей ключ подходит под регулярку.
+
+    Нужно для полей, чьё место в дереве плавает: например трек-номер появляется
+    только у отправленного заказа и в отдельном блоке.
+    """
+    if depth > 6:
+        return None
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, (str, int)) and pattern.search(key) and str(value).strip():
+                return str(value).strip()
+            found = _deep_find(value, pattern, depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _deep_find(item, pattern, depth + 1)
+            if found:
+                return found
     return None
 
 
-def normalize_taobao_order(raw: dict):
-    """Сырой заказ Taobao → payload, либо None.
+_TRACK_KEY_RE = re.compile(r"mailno|logisticsid|expressno|trackingno", re.I)
+# id заказа зашит в имя компонента: Main_5127…, item_5127…_1_1, pay_5127…/0
+_COMPONENT_ORDER_ID_RE = re.compile(r"^(?P<name>[A-Za-z]+)_(?P<oid>\d{6,})")
 
-    ВНИМАНИЕ: раскладка полей ещё не подтверждена реальными данными.
 
-    Ответ ``queryboughtlistv2`` (проверено вживую 2026-08-08) приходит деревом
-    компонентов Ultron — ``data.data`` + ``data.hierarchy`` — а не списком
-    заказов с блоками ``statusInfo``/``payInfo``/``subOrders``, как здесь
-    предполагается. Эти имена взяты из документации к старой версии API.
-    Функция останется рабочей для такого формата, но настоящую раскладку надо
-    дописать по ответу, где ``global.orderCount > 0``.
+def extract_taobao_orders(response):
+    """Полный ответ ``queryboughtlistv2`` → список заказов.
 
-    Пока такого ответа нет, заказы Taobao из WebView сохраняться не будут —
-    ingest их просто не опознает и молча пропустит.
+    Ответ приходит деревом компонентов Ultron: один заказ размазан по
+    ``Main_<id>``, ``sellerInfo_<id>``, ``item_<id>_1_1``, ``pay_<id>/0``,
+    связанным общим id в имени компонента. Собираем их обратно в один объект.
+    Структура подтверждена реальным ответом (2026-08-08).
     """
-    order_info = raw.get("orderInfo") if isinstance(raw.get("orderInfo"), dict) else {}
-    status_info = raw.get("statusInfo") if isinstance(raw.get("statusInfo"), dict) else {}
-    pay_info = raw.get("payInfo") if isinstance(raw.get("payInfo"), dict) else {}
-    logistics = raw.get("logisticsInfo") if isinstance(raw.get("logisticsInfo"), dict) else {}
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data") if isinstance(response.get("data"), dict) else response
+    components = data.get("data") if isinstance(data.get("data"), dict) else None
+    if not isinstance(components, dict):
+        return []
 
-    order_id = str(
-        _taobao_first(raw, "id", "orderId", "bizOrderId")
-        or _taobao_first(order_info, "id", "orderId", "bizOrderId")
-        or ""
-    ).strip()
+    grouped = {}
+    for name, component in components.items():
+        match = _COMPONENT_ORDER_ID_RE.match(name)
+        if not match or not isinstance(component, dict):
+            continue
+        bucket = grouped.setdefault(match.group("oid"), {})
+        bucket.setdefault(match.group("name"), []).append(component.get("fields") or {})
+
+    orders = []
+    for order_id, parts in grouped.items():
+        # Main есть у настоящего заказа; группы-обёртки (MainGroup, subGroup)
+        # полей не несут и заказом не являются.
+        if "Main" not in parts:
+            continue
+        orders.append({"__taobao_order_id": order_id, "parts": parts})
+    return orders
+
+
+def normalize_taobao_order(raw: dict):
+    """Собранный заказ Taobao → payload, либо None если заказ не нужен.
+
+    Раскладка проверена на реальном ответе: сумма — в ``pay/actualFee`` строкой
+    с валютой, статус — в ``sellerInfo.status.text`` и заголовке блока ожидания,
+    товары — в ``item.item``.
+    """
+    parts = raw.get("parts") if isinstance(raw.get("parts"), dict) else None
+    if not parts:
+        return None
+    main = (parts.get("Main") or [{}])[0]
+    order_id = str(raw.get("__taobao_order_id") or main.get("orderId") or "").strip()
     if not order_id:
         return None
 
-    prompt = str(
-        _taobao_first(status_info, "text", "statusText", "desc")
-        or _taobao_first(raw, "statusText", "orderStatus")
-        or ""
-    )
-    track = str(
-        _taobao_first(logistics, "mailNo", "logisticsId")
-        or _taobao_first(raw, "mailNo")
-        or ""
-    ).strip()
+    status_texts = []
+    for seller in parts.get("sellerInfo", []):
+        status = seller.get("status")
+        if isinstance(status, dict) and status.get("text"):
+            status_texts.append(str(status["text"]))
+    for key, blocks in parts.items():
+        # mainWaitSendShipTime, mainLogistics и прочие блоки состояния.
+        if key.startswith("main"):
+            for block in blocks:
+                if block.get("title"):
+                    status_texts.append(str(block["title"]))
+    prompt = " ".join(status_texts)
+
+    track = _deep_find(parts, _TRACK_KEY_RE) or ""
     status = _status_from_prompt(prompt, track)
     if status is None:
         return None
 
-    sub_orders = raw.get("subOrders")
-    sub_orders = sub_orders if isinstance(sub_orders, list) else []
     titles, quantity = [], 0
-    for item in sub_orders:
+    for item_fields in parts.get("item", []):
+        item = item_fields.get("item")
         if not isinstance(item, dict):
             continue
-        title = _taobao_first(item, "title", "itemTitle", "name")
-        if title:
-            titles.append(str(title))
-        quantity += int(_taobao_first(item, "quantity", "buyAmount") or 0)
-    if not titles:
-        title = _taobao_first(raw, "title", "itemTitle")
-        if title:
-            titles.append(str(title))
+        if item.get("title"):
+            titles.append(str(item["title"]))
+        quantity += int(item.get("quantity") or 0)
 
-    price = _decimal_from_yuan(
-        _taobao_first(pay_info, "actualFee", "totalFee", "payFee")
-        or _taobao_first(raw, "actualFee", "totalFee")
-    )
+    price = None
+    for pay in parts.get("pay", []):
+        fee = pay.get("actualFee")
+        if isinstance(fee, dict):
+            price = _decimal_from_money(fee.get("value"))
+        if price is not None:
+            break
+    if price is None:
+        # Блока с итогом нет — складываем позиции.
+        total, seen = Decimal("0"), False
+        for item_fields in parts.get("item", []):
+            info = (item_fields.get("item") or {}).get("priceInfo")
+            if isinstance(info, dict):
+                part = _decimal_from_money(info.get("actualTotalFee"))
+                if part is not None:
+                    total += part
+                    seen = True
+        price = total if seen else None
 
     return {
         "external_order_id": order_id,
@@ -192,6 +275,9 @@ class Marketplace:
     audit_session_expired: str
     notify_connected: str
     notify_synced: str
+    # Полный ответ маркетплейса → список сырых заказов. None, если заказы
+    # приходят готовым списком и разбирать конверт не нужно (так у PDD).
+    extract: Callable[[dict], list] | None = None
 
     def is_raw(self, payload: dict) -> bool:
         return any(payload.get(marker) for marker in self.raw_marker)
@@ -216,17 +302,9 @@ MARKETPLACES = {
         title="Taobao",
         source=Order.Source.TAOBAO,
         normalize=normalize_taobao_order,
-        # Заказ mtop приходит блоками, но набор блоков плавает от версии к
-        # версии — признаком считаем любой из них, иначе заказ вида
-        # {id, statusInfo} примем за уже нормализованный и потеряем.
-        raw_marker=(
-            "orderInfo",
-            "subOrders",
-            "bizOrderId",
-            "statusInfo",
-            "payInfo",
-            "logisticsInfo",
-        ),
+        # Собранный заказ помечен служебным ключом — по нему и опознаём.
+        raw_marker=("__taobao_order_id",),
+        extract=extract_taobao_orders,
         audit_connected=AuditLog.Action.TAOBAO_CONNECTED,
         audit_disconnected=AuditLog.Action.TAOBAO_DISCONNECTED,
         audit_synced=AuditLog.Action.TAOBAO_SYNCED,

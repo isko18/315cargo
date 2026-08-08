@@ -296,11 +296,33 @@ class MarketplaceSyncService:
         if create_parcels:
             self._sync_parcel_for_order(order)
 
+    def _expand(self, orders):
+        """Развернуть полный ответ маркетплейса в список заказов.
+
+        Мобилка может прислать как готовый список, так и весь ответ целиком —
+        у Taobao заказы вообще лежат деревом компонентов, вытащить их можно
+        только из ответа целиком.
+        """
+        extract = self.marketplace.extract
+        if not extract:
+            return list(orders)
+        expanded = []
+        for payload in orders:
+            if not isinstance(payload, dict):
+                expanded.append(payload)
+                continue
+            if self.marketplace.is_raw(payload):
+                expanded.append(payload)  # уже собранный заказ
+                continue
+            found = extract(payload)
+            expanded.extend(found if found else [payload])
+        return expanded
+
     @transaction.atomic
     def ingest_orders(self, orders, *, request=None, create_parcels: bool = True) -> SyncResult:
         """Сохраняет заказы из WebView и создаёт по ним посылки."""
         result = SyncResult()
-        for payload in orders:
+        for payload in self._expand(orders):
             self._apply_order(payload, result=result, create_parcels=create_parcels)
         self.account.last_sync_at = timezone.now()
         self.account.last_sync_error = ""
