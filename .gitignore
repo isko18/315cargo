@@ -184,3 +184,9 @@ node_modules/
 firebaseSDK.json
 firebase*.json
 *serviceaccount*.json
+
+# Снятые с браузера ответы маркетплейсов (HAR/JSON) — внутри куки живой сессии
+*.har
+1688_orders.json
+taobao_orders.json
+pdd_orders.json
