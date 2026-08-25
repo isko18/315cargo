@@ -16,6 +16,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -64,6 +65,25 @@ def app_link_for(slug: str) -> str:
     return f"{settings.MOBILE_APP_SCHEME}://join/{slug}"
 
 
+def play_store_url_for(slug: str) -> str:
+    """Ссылка на Play Market с Install Referrer — для тех, у кого приложения нет.
+
+    Play Market запоминает ``referrer`` со страницы приложения и отдаёт его
+    приложению при первом запуске после установки: так карго оказывается
+    выбранным, минуя экран ввода кода.
+
+    Значение referrer — само по себе пара ``ключ=значение``, поэтому кодируется
+    целиком, как одно значение параметра: ``=`` внутри обязан стать ``%3D``.
+    Иначе Play Market обрежет referrer по первому же разделителю и slug
+    потеряется. Проверка: в готовом адресе ``=`` встречается ровно дважды.
+    """
+    referrer = quote(f"cargo={slug}", safe="")
+    return (
+        "https://play.google.com/store/apps/details"
+        f"?id={settings.ANDROID_PACKAGE_NAME}&referrer={referrer}"
+    )
+
+
 def cargo_invite(request, slug):
     """Страница-заглушка ``/j/<slug>``.
 
@@ -79,10 +99,6 @@ def cargo_invite(request, slug):
             status=404,
         )
 
-    play_url = (
-        "https://play.google.com/store/apps/details"
-        f"?id={settings.ANDROID_PACKAGE_NAME}&referrer=cargo%3D{cargo.slug}"
-    )
     return render(
         request,
         "invites/cargo.html",
@@ -91,7 +107,7 @@ def cargo_invite(request, slug):
             # Код для ручного ввода в приложении — это slug, регистр не важен.
             "cargo_code": cargo.slug.upper(),
             "app_link": app_link_for(cargo.slug),
-            "play_url": play_url,
+            "play_url": play_store_url_for(cargo.slug),
             "app_store_url": settings.APP_STORE_URL,
         },
     )

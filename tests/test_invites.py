@@ -102,3 +102,54 @@ def test_invite_url_uses_configured_domain(settings):
 
     settings.INVITE_LINK_BASE_URL = "https://315cargo.com"
     assert invite_url_for("315cargo") == "https://315cargo.com/j/315cargo"
+
+
+# --- Install Referrer: подстановка карго после установки из Play Market ---
+# Вся механика держится на одном параметре в ссылке на Play. Если он пропадёт
+# или потеряет кодирование, сценарий сломается молча: страница откроется, кнопка
+# будет работать, а карго после установки просто не подставится.
+
+
+@pytest.mark.django_db
+def test_play_url_carries_encoded_referrer():
+    from common.invites import play_store_url_for
+
+    url = play_store_url_for("315cargo-osh")
+    assert "&referrer=cargo%3D315cargo-osh" in url
+    # Незакодированный `=` внутри значения Play Market обрезал бы по нему.
+    assert "referrer=cargo=" not in url
+
+
+@pytest.mark.django_db
+def test_play_url_has_exactly_two_equals_signs():
+    """Проверка из инструкции: `=` только после `id` и после `referrer`."""
+    from common.invites import play_store_url_for
+
+    assert play_store_url_for("osh").count("=") == 2
+
+
+@pytest.mark.django_db
+def test_play_url_has_no_pcampaignid():
+    """`pcampaignid` прилипает к ссылке из кнопки «Поделиться» в Play Market."""
+    from common.invites import play_store_url_for
+
+    assert "pcampaignid" not in play_store_url_for("osh")
+
+
+@pytest.mark.django_db
+def test_invite_page_play_button_has_referrer(client):
+    """Страница должна отдавать ссылку с referrer, а не голый листинг."""
+    cargo = CargoCompanyFactory(slug="referrer-page")
+
+    body = client.get(f"/j/{cargo.slug}").content.decode()
+    # В HTML `&` экранирован — сравниваем с той же заменой.
+    assert "&amp;referrer=cargo%3Dreferrer-page" in body
+
+
+@pytest.mark.django_db
+def test_invite_page_shows_cargo_code_as_ios_fallback(client):
+    """Запасной путь: на iOS автоподстановки нет, код вводят руками."""
+    cargo = CargoCompanyFactory(slug="ios-fallback")
+
+    body = client.get(f"/j/{cargo.slug}").content.decode()
+    assert "IOS-FALLBACK" in body
