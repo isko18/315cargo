@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useDialog } from '../ui/useDialog';
 import {
   Html5Qrcode,
   Html5QrcodeScannerState,
@@ -39,6 +40,8 @@ export default function QrScanner({
   onClose: () => void;
 }) {
   const elId = 'qr-reader';
+  const panelRef = useDialog<HTMLDivElement>({ onClose });
+  const titleId = useId();
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const handledRef = useRef(false);
   const [error, setError] = useState('');
@@ -128,16 +131,28 @@ export default function QrScanner({
 
   return (
     <div className="qr-overlay" onClick={onClose}>
-      <div className="qr-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Наведите на QR клиента</h2>
+      <div
+        ref={panelRef}
+        className="qr-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id={titleId}>Наведите на QR клиента</h2>
         <div id={elId} style={{ width: '100%', minHeight: error ? 0 : 200 }} />
-        {starting && !error && (
-          <p className="muted" style={{ textAlign: 'center', marginTop: 8 }}>
-            Запуск камеры…
-          </p>
-        )}
+        {/* Статус старта и ошибки камеры зачитываются вслух: без них модалка
+            выглядит «сломанной кнопкой», если камера запрещена. */}
+        <div role="status" aria-live="polite">
+          {starting && !error && (
+            <p className="muted" style={{ textAlign: 'center', marginTop: 8 }}>
+              Запуск камеры…
+            </p>
+          )}
+        </div>
         {error && (
-          <div className="alert error" style={{ marginTop: 12 }}>
+          <div className="alert error" role="alert" style={{ marginTop: 12 }}>
             {error}
           </div>
         )}

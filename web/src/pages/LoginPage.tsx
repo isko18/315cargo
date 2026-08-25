@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError, post, setToken, setRefresh, setRole } from '../api';
 import { useI18n } from '../i18n';
 import LangSwitcher from '../components/LangSwitcher';
+import ThemeToggle from '../components/ThemeToggle';
 import { IconEye, IconEyeOff } from '../components/Icons';
 import { Alert, Button, Field, Input } from '../ui';
 
@@ -49,6 +50,7 @@ export default function LoginPage() {
   return (
     <div className="auth-wrap">
       <div className="auth-lang">
+        <ThemeToggle />
         <LangSwitcher />
       </div>
 
@@ -67,8 +69,10 @@ export default function LoginPage() {
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             placeholder="+996700000000"
+            name="login"
             autoComplete="username"
             inputMode="tel"
+            spellCheck={false}
             invalid={Boolean(err)}
             autoFocus
           />
@@ -79,6 +83,7 @@ export default function LoginPage() {
             <Input
               id="pwd"
               type={showPwd ? 'text' : 'password'}
+              name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"

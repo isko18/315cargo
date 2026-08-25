@@ -172,7 +172,7 @@ export default function CargoDetailPage() {
       render: (p) => (
         <div>
           <div className="strong">{p.title}</div>
-          {p.address && <div className="muted" style={{ fontSize: 12.5 }}>{p.address}</div>}
+          {p.address && <div className="muted" style={{ fontSize: 12 }}>{p.address}</div>}
         </div>
       ),
     },
@@ -207,7 +207,7 @@ export default function CargoDetailPage() {
       render: (s) => (
         <div>
           <div className="strong">{s.full_name || t('ov.noName')}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>{s.phone}</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{s.phone}</div>
         </div>
       ),
     },

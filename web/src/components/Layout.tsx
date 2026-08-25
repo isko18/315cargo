@@ -1,67 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { clearToken, clearRefresh, clearRole, get, getRole, isChinaOnly, isPickupBound, allowedTabs, setRole, type ApiError } from '../api';
 import { PickupProvider, usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
+import { NAV, NAV_TITLES } from '../nav';
 import LangSwitcher from './LangSwitcher';
+import ThemeToggle from './ThemeToggle';
 import AlertsBell from './AlertsBell';
-import {
-  IconScan,
-  IconIssue,
-  IconWarehouse,
-  IconGlobe,
-  IconStaff,
-  IconTariff,
-  IconAnalytics,
-  IconOverview,
-  IconTruck,
-  IconRevenue,
-  IconPin,
-  IconLogout,
-  IconMenu,
-  IconClose,
-  IconSidebar,
-} from './Icons';
-
-const NAV = [
-  {
-    group: 'nav.group.ops',
-    items: [
-      { to: '/scan', tab: 'scan', label: 'nav.scan', icon: IconScan },
-      { to: '/issue', tab: 'issue', label: 'nav.issue', icon: IconIssue },
-      { to: '/warehouse', tab: 'warehouse', label: 'nav.warehouse', icon: IconWarehouse },
-      { to: '/china', tab: 'china', label: 'nav.china', icon: IconGlobe },
-    ],
-  },
-  {
-    group: 'nav.group.clients',
-    items: [
-      { to: '/clients', tab: 'clients', label: 'nav.clients', icon: IconStaff },
-      { to: '/delivery', tab: 'delivery', label: 'nav.delivery', icon: IconTruck },
-    ],
-  },
-  {
-    group: 'nav.group.manage',
-    items: [
-      { to: '/staff', tab: 'staff', label: 'nav.staff', icon: IconStaff },
-      { to: '/pickup-points', tab: 'pickup', label: 'nav.pickup', icon: IconWarehouse },
-      { to: '/cargo-settings', tab: 'tariff', label: 'nav.cargoSettings', icon: IconTariff },
-      { to: '/delivery-tariff', tab: 'delivery_tariff', label: 'nav.deliveryTariff', icon: IconRevenue },
-      { to: '/delivery-address', tab: 'delivery_address', label: 'nav.deliveryAddress', icon: IconPin },
-    ],
-  },
-  {
-    group: 'nav.group.analytics',
-    items: [
-      { to: '/analytics', tab: 'analytics', label: 'nav.analytics', icon: IconAnalytics },
-      { to: '/overview', tab: 'overview', label: 'nav.overview', icon: IconOverview },
-    ],
-  },
-];
-
-const TITLES: Record<string, string> = Object.fromEntries(
-  NAV.flatMap((g) => g.items).map((i) => [i.to, i.label]),
-);
+import CommandPalette from './CommandPalette';
+import BottomNav from './BottomNav';
+import { IconLogout, IconMenu, IconClose, IconSidebar, IconSearch } from './Icons';
 
 export default function Layout() {
   return (
@@ -73,6 +21,7 @@ export default function Layout() {
 
 function PickupSwitcher() {
   const { points, activeId, setActiveId } = usePickup();
+  const { t } = useI18n();
   // Привязанный оператор работает в одном ПВЗ — переключатель ему не нужен.
   if (isChinaOnly() || isPickupBound() || points.length === 0) return null;
   return (
@@ -80,10 +29,10 @@ function PickupSwitcher() {
       className="pvz-switch"
       value={activeId ?? ''}
       onChange={(e) => setActiveId(e.target.value ? Number(e.target.value) : null)}
-      aria-label="Активный ПВЗ"
-      title="Активный пункт выдачи"
+      aria-label={t('common.activePickup')}
+      title={t('common.activePickup')}
     >
-      <option value="">Все ПВЗ</option>
+      <option value="">{t('common.allPickups')}</option>
       {points.map((p) => (
         <option key={p.id} value={p.id}>
           {p.title}
@@ -98,6 +47,7 @@ function LayoutInner() {
   const loc = useLocation();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [palette, setPalette] = useState(false);
   // Свёрнутый сайдбар (десктоп): узкий rail только с иконками. Сохраняем выбор.
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nav-collapsed') === '1');
   const [, setTick] = useState(0);
@@ -136,6 +86,29 @@ function LayoutInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const logout = useCallback(() => {
+    clearToken();
+    clearRefresh();
+    clearRole();
+    localStorage.removeItem('who');
+    nav('/login', { replace: true });
+  }, [nav]);
+
+  // Ctrl/⌘ + K — командная палитра из любого места панели.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPalette((v) => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Мобильное меню — модальный слой: закрываем его при переходе на страницу.
+  useEffect(() => setOpen(false), [loc.pathname]);
+
   const who = localStorage.getItem('who') || 'Оператор';
   const role = getRole();
   const chinaOnly = isChinaOnly(role);
@@ -160,25 +133,20 @@ function LayoutInner() {
     items: g.items.filter((i) => tabs.includes(i.tab)),
   })).filter((g) => g.items.length > 0);
 
-  function logout() {
-    clearToken();
-    clearRefresh();
-    clearRole();
-    localStorage.removeItem('who');
-    nav('/login', { replace: true });
-  }
-
   const pageTitle =
-    TITLES[loc.pathname] || (loc.pathname === '/profile' ? 'nav.profile' : '315CARGO');
+    NAV_TITLES[loc.pathname] || (loc.pathname === '/profile' ? 'nav.profile' : '315CARGO');
 
   return (
     <div className={`shell ${collapsed ? 'nav-collapsed' : ''}`}>
+      <a className="skip-link" href="#main">
+        {t('common.skipToContent')}
+      </a>
       <div className={`scrim ${open ? 'show' : ''}`} onClick={() => setOpen(false)} />
 
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
+      <aside className={`sidebar ${open ? 'open' : ''}`} aria-label={t('common.mainNav')}>
         <div className="brand">
-          <div className="mark">315</div>
-          <div className="name">
+          <div className="mark" aria-hidden="true">315</div>
+          <div className="name" translate="no">
             315CARGO
             <small>ADMIN PANEL</small>
           </div>
@@ -187,8 +155,10 @@ function LayoutInner() {
         <div className="nav-scroll">
           {visibleNav.map((g) => (
             <div key={g.group} className="nav-group">
-              <div className="nav-group-label">{t(g.group)}</div>
-              <nav>
+              <div className="nav-group-label" id={`navg-${g.group}`}>
+                {t(g.group)}
+              </div>
+              <nav aria-labelledby={`navg-${g.group}`}>
                 {g.items.map(({ to, label, icon: Icon }) => (
                   <NavLink
                     key={to}
@@ -206,14 +176,18 @@ function LayoutInner() {
           ))}
         </div>
 
+        {/* На телефоне топбар не вмещает переключатели — они живут здесь. */}
+        <div className="side-tools">
+          <PickupSwitcher />
+          <div className="cluster gap-sm">
+            <ThemeToggle />
+            <LangSwitcher />
+          </div>
+        </div>
+
         <div className="side-user">
-          <NavLink
-            to="/profile"
-            onClick={() => setOpen(false)}
-            className="side-user-link"
-            title={t('nav.profile')}
-          >
-            <div className="avatar">{initials || 'OP'}</div>
+          <NavLink to="/profile" onClick={() => setOpen(false)} className="side-user-link" title={t('nav.profile')}>
+            <div className="avatar" aria-hidden="true">{initials || 'OP'}</div>
             <div className="meta">
               <div className="nm">{who}</div>
               <div className="rl">{roleLabel}</div>
@@ -227,7 +201,12 @@ function LayoutInner() {
 
       <div className="main">
         <header className="topbar">
-          <button className="menu-btn" onClick={() => setOpen((v) => !v)} aria-label={t('common.menu')}>
+          <button
+            className="menu-btn"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={t('common.menu')}
+            aria-expanded={open}
+          >
             {open ? <IconClose size={22} /> : <IconMenu size={22} />}
           </button>
           <button
@@ -239,17 +218,34 @@ function LayoutInner() {
           >
             <IconSidebar size={20} />
           </button>
+          {/* Не заголовок: настоящий h1 страницы живёт в PageHeader. */}
           <span className="page-title">{t(pageTitle)}</span>
           <span className="spacer" />
+          <button
+            type="button"
+            className="cmdk-trigger"
+            onClick={() => setPalette(true)}
+            aria-label={t('cmdk.title')}
+            aria-keyshortcuts="Control+K Meta+K"
+          >
+            <IconSearch size={16} />
+            <span className="k">{t('cmdk.trigger')}</span>
+            <kbd>Ctrl&nbsp;K</kbd>
+          </button>
           {tabs.includes('warehouse') && <AlertsBell />}
           <PickupSwitcher />
+          <ThemeToggle />
           <LangSwitcher />
           <span className="env-pill">{t('common.online')}</span>
         </header>
-        <main className="content">
+        <main className="content" id="main" tabIndex={-1}>
           <Outlet />
         </main>
       </div>
+
+      <BottomNav onMore={() => setOpen(true)} />
+
+      {palette && <CommandPalette onClose={() => setPalette(false)} onLogout={logout} />}
     </div>
   );
 }

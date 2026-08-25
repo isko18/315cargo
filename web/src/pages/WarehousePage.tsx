@@ -4,6 +4,7 @@ import { ApiError, get, isPickupBound, post } from '../api';
 import { statusMeta } from '../status';
 import { usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
+import { fmtDate as formatDate, fmtDateTime as formatDateTime } from '../format';
 import ParcelDrawer, { type Parcel } from '../components/ParcelDrawer';
 import WeightInline from '../components/WeightInline';
 import ClientSearch from '../components/ClientSearch';
@@ -29,6 +30,7 @@ import {
   Select,
   Stat,
   StatGrid,
+  useToast,
 } from '../ui';
 
 const STATUS_ORDER = [
@@ -49,13 +51,13 @@ const STATUS_ORDER = [
   'cancelled',
 ];
 
-const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
 
 const num = (v?: string | null) => (v ? parseFloat(v) || 0 : 0);
 
 export default function WarehousePage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const toast = useToast();
+  const fmtDate = (iso?: string | null) => formatDate(iso, lang);
   const { points, activeId } = usePickup();
   // Привязанный оператор ограничен своим ПВЗ на сервере — переключатель к нему
   // не применяем (иначе чужой activeId спрячет его же посылки).
@@ -140,7 +142,7 @@ export default function WarehousePage() {
       p.weight ?? '',
       p.delivery_price ?? '',
       p.pickup_point_title ?? '',
-      p.created_at ? new Date(p.created_at).toLocaleString('ru-RU') : '',
+      formatDateTime(p.created_at, lang, ''),
     ]);
     downloadCsv(`sklad-${today()}.csv`, [header, ...body]);
   }
@@ -154,7 +156,9 @@ export default function WarehousePage() {
         l ? l.map((p) => (p.id === id ? { ...p, weight: u.weight, delivery_price: u.delivery_price } : p)) : l,
       );
     } catch (e) {
-      setErr((e as ApiError).message);
+      const message = (e as ApiError).message;
+      setErr(message);
+      toast.error(t('toast.error'), message);
       throw e;
     }
   }
@@ -176,8 +180,11 @@ export default function WarehousePage() {
             )
           : l,
       );
+      toast.success(t('toast.assignOk'), code);
     } catch (e) {
-      setErr(formError(e));
+      const message = formError(e);
+      setErr(message);
+      toast.error(t('toast.error'), message);
     }
   }
 
@@ -185,11 +192,12 @@ export default function WarehousePage() {
     {
       key: 'product',
       header: t('op.product'),
+      mobile: 'title',
       sortValue: (p) => p.product_title ?? '',
       render: (p) => (
         <div className="cell-product">
           {p.product_image ? (
-            <img src={p.product_image} alt="" className="thumb" />
+            <img src={p.product_image} alt="" className="thumb" width={40} height={40} loading="lazy" />
           ) : (
             <span className="thumb thumb-fallback">
               <IconBox size={20} />
@@ -201,7 +209,16 @@ export default function WarehousePage() {
         </div>
       ),
     },
-    { key: 'track', header: t('common.track'), sortValue: (p) => p.track_number, render: (p) => <span className="mono">{p.track_number}</span> },
+    {
+      key: 'track',
+      header: t('common.track'),
+      sortValue: (p) => p.track_number,
+      render: (p) => (
+        <span className="mono" translate="no">
+          {p.track_number}
+        </span>
+      ),
+    },
     {
       key: 'client',
       header: t('common.client'),
@@ -209,7 +226,7 @@ export default function WarehousePage() {
       render: (p) =>
         p.client_code ? (
           <div>
-            <div className="strong" style={{ fontSize: 13.5 }}>{p.client_name || '—'}</div>
+            <div className="strong" style={{ fontSize: 13 }}>{p.client_name || '—'}</div>
             <div className="muted mono" style={{ fontSize: 12 }}>{p.client_code}</div>
           </div>
         ) : (
@@ -245,7 +262,12 @@ export default function WarehousePage() {
       sortValue: (p) => num(p.delivery_price),
       render: (p) => <span className="num">{money(p.delivery_price)}</span>,
     },
-    { key: 'pickup', header: t('wh.pvz'), render: (p) => <span style={{ fontSize: 13 }}>{p.pickup_point_title || '—'}</span> },
+    {
+      key: 'pickup',
+      header: t('wh.pvz'),
+      mobile: 'hide',
+      render: (p) => <span style={{ fontSize: 13 }}>{p.pickup_point_title || '—'}</span>,
+    },
     {
       key: 'created',
       header: t('wh.created'),
@@ -298,12 +320,16 @@ export default function WarehousePage() {
                 ))}
               </Select>
             </Field>
-            <Field label={t('wh.createdFrom')} style={{ minWidth: 140 }}>
-              <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
-            </Field>
-            <Field label={t('wh.createdTo')} style={{ minWidth: 140 }}>
-              <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
-            </Field>
+            {/* Даты держим парой: по отдельности они на телефоне занимают два
+                полноширинных ряда и отодвигают таблицу за экран. */}
+            <div className="row-pair">
+              <Field label={t('wh.createdFrom')}>
+                <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} />
+              </Field>
+              <Field label={t('wh.createdTo')}>
+                <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} />
+              </Field>
+            </div>
           </div>
           <div className="cluster mt-md">
             <Segmented

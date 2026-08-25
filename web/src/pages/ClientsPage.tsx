@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { money } from '../money';
 import { ApiError, get } from '../api';
 import { statusMeta } from '../status';
 import { useI18n } from '../i18n';
+import { fmtDate as formatDate } from '../format';
 import { IconSearch, IconStaff, IconBox, IconClose } from '../components/Icons';
 import {
   Alert,
@@ -15,6 +17,7 @@ import {
   Field,
   Input,
   PageHeader,
+  useDialog,
 } from '../ui';
 
 type Client = {
@@ -51,17 +54,23 @@ type History = {
   parcels: ParcelRow[];
 };
 
-const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
 
 export default function ClientsPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const fmtDate = (iso?: string | null) => formatDate(iso, lang);
   const [list, setList] = useState<Client[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  // Поиск живёт в URL: ссылку на выборку можно переслать, а командная
+  // палитра открывает клиента переходом на /clients?q=<код>.
+  const [params, setParams] = useSearchParams();
+  const search = params.get('q') ?? '';
+  const [debounced, setDebounced] = useState(search);
   const [selected, setSelected] = useState<Client | null>(null);
+
+  const setSearch = (value: string) => {
+    setParams(value ? { q: value } : {}, { replace: true });
+  };
 
   useEffect(() => {
     const h = setTimeout(() => setDebounced(search.trim()), 300);
@@ -89,7 +98,7 @@ export default function ClientsPage() {
       render: (c) => (
         <div>
           <div className="strong">{c.full_name || '—'}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>{c.phone} · {c.client_code || '—'}</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{c.phone} · {c.client_code || '—'}</div>
         </div>
       ),
     },
@@ -139,9 +148,12 @@ export default function ClientsPage() {
 }
 
 function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const fmtDate = (iso?: string | null) => formatDate(iso, lang);
   const [data, setData] = useState<History | null>(null);
   const [err, setErr] = useState('');
+  const drawerRef = useDialog<HTMLElement>({ onClose });
+  const titleId = useId();
 
   useEffect(() => {
     get<History>(`/api/manage/clients/${client.id}/history/`)
@@ -149,22 +161,23 @@ function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void
       .catch((e) => setErr((e as ApiError).message));
   }, [client.id]);
 
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onEsc);
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [onClose]);
-
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-label={t('clients.history')}>
+      <aside
+        ref={drawerRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="drawer-head">
           <div className="grow">
-            <div className="track">{client.full_name || client.phone}</div>
-            <div className="muted mono" style={{ fontSize: 12.5 }}>{client.phone} · {client.client_code || '—'}</div>
+            <div className="track" id={titleId}>{client.full_name || client.phone}</div>
+            <div className="muted mono" style={{ fontSize: 12 }}>{client.phone} · {client.client_code || '—'}</div>
           </div>
-          <button className="x" onClick={onClose} aria-label={t('common.cancel')}>
+          <button className="x" data-dialog-dismiss onClick={onClose} aria-label={t('common.close')}>
             <IconClose size={20} />
           </button>
         </div>

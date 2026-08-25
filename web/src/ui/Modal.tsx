@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useId } from 'react';
 import type { ReactNode } from 'react';
 import { IconClose } from '../components/Icons';
+import { useDialog } from './useDialog';
 
 /**
  * Модальное окно для создания/редактирования. Закрывается по Esc, клику вне
- * панели и крестику. Блокирует скролл фона и переносит фокус на первое поле.
+ * панели и крестику. Фокус заперт внутри окна и возвращается на элемент,
+ * которым его открыли (см. useDialog).
  */
 export default function Modal({
   title,
@@ -21,29 +23,9 @@ export default function Modal({
   size?: 'md' | 'sm';
   children: ReactNode;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // Монтирование: блокируем скролл фона и один раз фокусируем первое поле.
-  // ВАЖНО: без зависимости от onClose — иначе эффект перезапускается на каждый
-  // рендер (родитель передаёт новый onClose) и крадёт фокус при каждом вводе.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const first = panelRef.current?.querySelector<HTMLElement>(
-      'input, select, textarea, button:not(.x)',
-    );
-    first?.focus();
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  // Закрытие по Esc — отдельным эффектом с актуальным onClose.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const panelRef = useDialog<HTMLDivElement>({ onClose });
+  const titleId = useId();
+  const descId = useId();
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -52,14 +34,21 @@ export default function Modal({
         className={`modal ${size === 'sm' ? 'sm' : ''}`}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descId : undefined}
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
           <div className="grow">
-            <h2>{title}</h2>
-            {description && <div className="sub">{description}</div>}
+            <h2 id={titleId}>{title}</h2>
+            {description && (
+              <div className="sub" id={descId}>
+                {description}
+              </div>
+            )}
           </div>
-          <button type="button" className="x" onClick={onClose} aria-label="Закрыть">
+          <button type="button" className="x" data-dialog-dismiss onClick={onClose} aria-label="Закрыть">
             <IconClose size={20} />
           </button>
         </div>

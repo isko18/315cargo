@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { money } from '../money';
 import { ApiError, get, patch } from '../api';
 import { useI18n } from '../i18n';
+import { fmtDate as formatDate } from '../format';
 import type { Tone } from '../status';
 import { IconTruck } from '../components/Icons';
 import { Alert, Badge, Card, CardHeader, Column, DataTable, EmptyState, PageHeader, Select } from '../ui';
@@ -41,11 +42,10 @@ const D_TONE: Record<string, Tone> = {
   cancelled: 'red',
 };
 
-const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
 
 export default function DeliveryPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const fmtDate = (iso?: string | null) => formatDate(iso, lang);
   const [list, setList] = useState<Request[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -113,7 +113,7 @@ export default function DeliveryPage() {
           <Select
             value={r.status}
             onChange={(e) => changeStatus(r.id, e.target.value)}
-            style={{ padding: '5px 8px', fontSize: 12.5, width: 'auto', maxWidth: 180 }}
+            style={{ padding: '5px 8px', fontSize: 12, width: 'auto', maxWidth: 180 }}
           >
             {D_STATUSES.map((s) => (
               <option key={s} value={s}>{t(`dstatus.${s}`)}</option>

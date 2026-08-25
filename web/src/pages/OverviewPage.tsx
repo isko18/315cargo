@@ -308,7 +308,7 @@ export default function OverviewPage() {
       render: (c) => (
         <div>
           <div className="strong">{c.title}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>
+          <div className="muted mono" style={{ fontSize: 12 }}>
             {c.slug}
             {c.code && ` · ${c.code}`}
           </div>
@@ -502,7 +502,7 @@ export default function OverviewPage() {
               </Field>
             </div>
             <Field label={t('ov.address')} className="mt-md">
-              <Input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Ош, ул. ..." />
+              <Input value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Ош, ул. Ленина, 12" />
             </Field>
 
             <div className="section-title" style={{ margin: '22px 0 12px' }}>{t('ov.addrPreview')}</div>

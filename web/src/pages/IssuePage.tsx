@@ -24,6 +24,7 @@ import {
   Input,
   PageHeader,
   Segmented,
+  useToast,
   type SegmentedOption,
 } from '../ui';
 
@@ -46,6 +47,7 @@ const num = (v?: string | null) => (v ? parseFloat(v) || 0 : 0);
 
 export default function IssuePage() {
   const { t } = useI18n();
+  const toast = useToast();
   // «Карго ID» — только для супер-админа без своего карго.
   const isSuper = Boolean(getRole().is_superuser);
   const [tab, setTab] = useState<'issue' | 'history'>('issue');
@@ -134,7 +136,9 @@ export default function IssuePage() {
       });
       setParcels((list) => (list ? list.map((p) => (p.id === id ? updated : p)) : list));
     } catch (e) {
-      setErr((e as ApiError).message);
+      const message = (e as ApiError).message;
+      setErr(message);
+      toast.error(t('toast.error'), message);
       throw e;
     }
   }
@@ -190,8 +194,14 @@ export default function IssuePage() {
         errors.push(`${p.track_number}: ${(e as ApiError).message}`);
       }
     }
-    setMsg(`${t('issue.done')}: ${ok} / ${chosen.length} · ${money(totals.price)}`);
-    if (errors.length) setErr(errors.join('\n'));
+    const summary = `${t('issue.done')}: ${ok} / ${chosen.length} · ${money(totals.price)}`;
+    setMsg(summary);
+    if (errors.length) {
+      setErr(errors.join('\n'));
+      toast.error(t('toast.error'), `${errors.length} / ${chosen.length}`);
+    } else if (ok > 0) {
+      toast.success(t('toast.issueOk'), summary);
+    }
     setBusy(false);
     if (ok > 0) setIssuedTick((n) => n + 1); // обновить историю выдач
     // Перезагрузка текущего клиента, чтобы обновить статусы.
@@ -215,6 +225,8 @@ export default function IssuePage() {
     {
       key: 'sel',
       width: 44,
+      cardLabel: '',
+      mobile: 'corner',
       header: (
         <input
           type="checkbox"
@@ -229,6 +241,7 @@ export default function IssuePage() {
         <input
           type="checkbox"
           className="tbl-check"
+          aria-label={`${t('issue.selectOne')} ${p.track_number}`}
           disabled={FINAL.has(p.status)}
           checked={sel.has(p.id)}
           onChange={() => toggle(p.id)}
@@ -238,10 +251,11 @@ export default function IssuePage() {
     {
       key: 'product',
       header: t('op.product'),
+      mobile: 'title',
       render: (p) => (
         <div className="cell-product">
           {p.product_image ? (
-            <img src={p.product_image} alt="" className="thumb" />
+            <img src={p.product_image} alt="" className="thumb" width={40} height={40} loading="lazy" />
           ) : (
             <span className="thumb thumb-fallback">
               <IconBox size={20} />
@@ -253,7 +267,15 @@ export default function IssuePage() {
         </div>
       ),
     },
-    { key: 'track', header: t('common.track'), render: (p) => <span className="mono">{p.track_number}</span> },
+    {
+      key: 'track',
+      header: t('common.track'),
+      render: (p) => (
+        <span className="mono" translate="no">
+          {p.track_number}
+        </span>
+      ),
+    },
     {
       key: 'weight',
       header: t('op.weightKg'),

@@ -4,6 +4,9 @@ import type { SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
 
+/** Пропсы любой иконки набора — для мест, где иконка передаётся как значение. */
+export type IconProps = P;
+
 function Svg({ size = 20, children, ...rest }: P & { children: React.ReactNode }) {
   return (
     <svg
@@ -225,5 +228,59 @@ export const IconEyeOff = (p: P) => (
     <path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-2.16 2.94M6.6 6.6A13.3 13.3 0 0 0 2 11s3.5 7 10 7a9.1 9.1 0 0 0 4.5-1.16" />
     <path d="M10 10a3 3 0 0 0 4 4" />
     <path d="m2 2 20 20" />
+  </Svg>
+);
+
+export const IconSun = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+  </Svg>
+);
+
+export const IconMoon = (p: P) => (
+  <Svg {...p}>
+    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+  </Svg>
+);
+
+export const IconMonitor = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="4" width="20" height="13" rx="2" />
+    <path d="M8 21h8M12 17v4" />
+  </Svg>
+);
+
+export const IconCommand = (p: P) => (
+  <Svg {...p}>
+    <path d="M15 6a3 3 0 1 1 3 3h-3V6ZM9 6a3 3 0 1 0-3 3h3V6ZM15 18a3 3 0 1 0 3-3h-3v3ZM9 18a3 3 0 1 1-3-3h3v3Z" />
+    <rect x="9" y="9" width="6" height="6" />
+  </Svg>
+);
+
+export const IconCornerDownLeft = (p: P) => (
+  <Svg {...p}>
+    <path d="M20 5v6a4 4 0 0 1-4 4H4" />
+    <path d="m8 11-4 4 4 4" />
+  </Svg>
+);
+
+export const IconArrowUpDown = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" />
+  </Svg>
+);
+
+export const IconInfo = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </Svg>
+);
+
+export const IconCheckCircle = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12.2 2.4 2.4 4.6-4.9" />
   </Svg>
 );

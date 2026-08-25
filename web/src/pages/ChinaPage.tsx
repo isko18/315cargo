@@ -19,6 +19,7 @@ import {
   Input,
   PageHeader,
   Segmented,
+  useToast,
   type SegmentedOption,
 } from '../ui';
 
@@ -45,6 +46,7 @@ type Entry = { result: string; parcel: Parcel };
 
 export default function ChinaPage() {
   const { t } = useI18n();
+  const toast = useToast();
   const [tab, setTab] = useState<'china' | 'history'>('china');
   const [track, setTrack] = useState('');
   const [clientCode, setClientCode] = useState('');
@@ -71,8 +73,11 @@ export default function ChinaPage() {
       setTrack('');
       setFlashId(r.parcel.id);
       window.setTimeout(() => setFlashId((cur) => (cur === r.parcel.id ? null : cur)), 1400);
+      toast.success(t('toast.scanOk'), `${r.parcel.track_number} · ${t(`result.${r.result}`)}`);
     } catch (e) {
-      setErr((e as ApiError).message);
+      const message = (e as ApiError).message;
+      setErr(message);
+      toast.error(t('toast.error'), message);
     } finally {
       setBusy(false);
       inputRef.current?.focus();

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { money } from '../money';
 import { ApiError, get, getRole, post } from '../api';
 import { useI18n } from '../i18n';
+import { fmtShortDateTime } from '../format';
 import { IconHistory, IconSearch } from './Icons';
 import WeightInline from './WeightInline';
 import ClientSearch from './ClientSearch';
@@ -19,6 +20,7 @@ import {
   formError,
   Input,
   Select,
+  useToast,
 } from '../ui';
 
 type Op = {
@@ -39,10 +41,6 @@ type Op = {
 type Operator = { id: number; full_name: string; phone: string };
 
 const num = (v?: string | null) => (v ? parseFloat(v) || 0 : 0);
-const fmt = (iso: string) =>
-  new Date(iso).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
-  });
 
 /**
  * История операций приём/выдача с фильтрами и инлайн-редактированием веса.
@@ -55,7 +53,9 @@ export default function OperationHistory({
   type: 'receive' | 'issue' | 'china';
   reloadSignal?: number;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const toast = useToast();
+  const fmt = (iso: string) => fmtShortDateTime(iso, lang);
   const role = getRole();
   const isManager = Boolean(role.is_superuser || role.is_cargo_admin);
 
@@ -126,8 +126,11 @@ export default function OperationHistory({
             )
           : rs,
       );
+      toast.success(t('toast.assignOk'), code);
     } catch (e) {
-      setErr(formError(e));
+      const message = formError(e);
+      setErr(message);
+      toast.error(t('toast.error'), message);
     }
   }
 
@@ -148,7 +151,9 @@ export default function OperationHistory({
           : rs,
       );
     } catch (e) {
-      setErr(formError(e));
+      const message = formError(e);
+      setErr(message);
+      toast.error(t('toast.error'), message);
       throw e; // чтобы WeightInline вернул прежнее значение
     }
   }
@@ -226,7 +231,7 @@ export default function OperationHistory({
       header: t('hist.date'),
       align: 'right',
       sortValue: (r) => r.created_at,
-      render: (r) => <span className="num" style={{ fontSize: 12.5 }}>{fmt(r.created_at)}</span>,
+      render: (r) => <span className="num" style={{ fontSize: 12 }}>{fmt(r.created_at)}</span>,
     },
   ];
 

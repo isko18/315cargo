@@ -192,7 +192,7 @@ export default function StaffPage() {
       render: (s) => (
         <div>
           <div className="strong">{s.full_name || '—'}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>{s.phone}</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{s.phone}</div>
         </div>
       ),
     },

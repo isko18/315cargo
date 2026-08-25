@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 export type Lang = 'ru' | 'zh';
 
@@ -28,8 +28,42 @@ const DICT: Record<Lang, Record<string, string>> = {
     'common.result': 'Результат',
     'common.menu': 'Меню',
     'common.toggleNav': 'Свернуть меню',
+    'common.skipToContent': 'К содержимому',
+    'common.mainNav': 'Основное меню',
+    'common.activePickup': 'Активный пункт выдачи',
+    'common.allPickups': 'Все ПВЗ',
+    'common.close': 'Закрыть',
+    'common.more': 'Ещё',
     'clientsearch.placeholder': 'имя, телефон или код клиента…',
     'clientsearch.none': 'Клиенты не найдены',
+    'clientsearch.results': 'Найденные клиенты',
+
+    // Тема оформления
+    'theme.label': 'Тема оформления',
+    'theme.auto': 'Как в системе',
+    'theme.light': 'Светлая',
+    'theme.dark': 'Тёмная',
+
+    // Командная палитра
+    'cmdk.title': 'Быстрый переход',
+    'cmdk.trigger': 'Поиск и переход',
+    'cmdk.placeholder': 'Раздел, клиент или действие…',
+    'cmdk.empty': 'Ничего не найдено. Попробуйте другой запрос.',
+    'cmdk.groupPages': 'Разделы',
+    'cmdk.groupClients': 'Клиенты',
+    'cmdk.groupActions': 'Действия',
+    'cmdk.theme': 'Переключить тему',
+    'cmdk.lang': 'Переключить язык',
+    'cmdk.hintMove': 'выбрать',
+    'cmdk.hintOpen': 'открыть',
+    'cmdk.hintClose': 'закрыть',
+
+    // Уведомления об операциях
+    'toast.scanOk': 'Посылка принята',
+    'toast.assignOk': 'Клиент присвоен',
+    'toast.weightOk': 'Вес сохранён',
+    'toast.issueOk': 'Посылка выдана',
+    'toast.error': 'Не получилось',
 
     'roles.owner': 'Владелец',
     'roles.cargoAdmin': 'Администратор карго',
@@ -167,6 +201,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     'issue.emptyTitle': 'У клиента нет посылок',
     'issue.emptyDesc': 'Проверьте код клиента и попробуйте снова.',
     'issue.selectAll': 'Выбрать все',
+    'issue.selectOne': 'Выбрать посылку',
     'issue.done': 'Выдано',
     'issue.filterReady': 'К выдаче',
     'issue.filterActive': 'Активные',
@@ -599,8 +634,42 @@ const DICT: Record<Lang, Record<string, string>> = {
     'common.result': '结果',
     'common.menu': '菜单',
     'common.toggleNav': '折叠菜单',
+    'common.skipToContent': '跳到主要内容',
+    'common.mainNav': '主菜单',
+    'common.activePickup': '当前自提点',
+    'common.allPickups': '全部自提点',
+    'common.close': '关闭',
+    'common.more': '更多',
     'clientsearch.placeholder': '客户姓名、电话或代码…',
     'clientsearch.none': '未找到客户',
+    'clientsearch.results': '搜索到的客户',
+
+    // 主题
+    'theme.label': '界面主题',
+    'theme.auto': '跟随系统',
+    'theme.light': '浅色',
+    'theme.dark': '深色',
+
+    // 命令面板
+    'cmdk.title': '快速跳转',
+    'cmdk.trigger': '搜索与跳转',
+    'cmdk.placeholder': '页面、客户或操作…',
+    'cmdk.empty': '未找到结果，换个关键词试试。',
+    'cmdk.groupPages': '页面',
+    'cmdk.groupClients': '客户',
+    'cmdk.groupActions': '操作',
+    'cmdk.theme': '切换主题',
+    'cmdk.lang': '切换语言',
+    'cmdk.hintMove': '选择',
+    'cmdk.hintOpen': '打开',
+    'cmdk.hintClose': '关闭',
+
+    // 操作提示
+    'toast.scanOk': '包裹已接收',
+    'toast.assignOk': '已绑定客户',
+    'toast.weightOk': '重量已保存',
+    'toast.issueOk': '包裹已发放',
+    'toast.error': '操作失败',
 
     'roles.owner': '所有者',
     'roles.cargoAdmin': '货运管理员',
@@ -737,6 +806,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     'issue.emptyTitle': '该客户没有包裹',
     'issue.emptyDesc': '请检查客户码后重试。',
     'issue.selectAll': '全选',
+    'issue.selectOne': '选择包裹',
     'issue.done': '已出库',
     'issue.filterReady': '待出库',
     'issue.filterActive': '进行中',
@@ -1160,10 +1230,15 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     return raw === 'zh' ? 'zh' : 'ru';
   });
 
+  // Атрибут lang должен совпадать с выбранным языком и при первой загрузке —
+  // от него зависят переносы, озвучка скринридером и авто-перевод браузера.
+  useEffect(() => {
+    document.documentElement.lang = lang === 'zh' ? 'zh-Hans' : 'ru';
+  }, [lang]);
+
   function setLang(l: Lang) {
     setLangState(l);
     localStorage.setItem(KEY, l);
-    document.documentElement.lang = l === 'zh' ? 'zh-Hans' : 'ru';
   }
 
   const t = (key: string) => DICT[lang][key] ?? DICT.ru[key] ?? key;

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get } from '../api';
+import { fmtDayMonth } from '../format';
+import { useI18n } from '../i18n';
 import { IconAlert, IconBox } from './Icons';
 
 type Pending = {
@@ -10,9 +12,6 @@ type Pending = {
   product_title?: string | null;
 };
 
-const fmt = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : '';
-
 /**
  * Индикатор «требуют внимания» для операторов: посылки без клиента (pending)
  * по своему карго. Клиент-уведомления (заказы/статусы) адресованы клиентам,
@@ -20,9 +19,11 @@ const fmt = (iso?: string | null) =>
  */
 export default function AlertsBell() {
   const nav = useNavigate();
+  const { lang } = useI18n();
   const [items, setItems] = useState<Pending[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const fmt = (iso?: string | null) => fmtDayMonth(iso, lang);
 
   function load() {
     get('/api/parcels/?pending=true')
@@ -40,8 +41,18 @@ export default function AlertsBell() {
     const onDoc = (e: MouseEvent) => {
       if (open && ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) {
+        setOpen(false);
+        ref.current?.querySelector('button')?.focus();
+      }
+    };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
   }, [open]);
 
   const count = items.length;
@@ -54,11 +65,16 @@ export default function AlertsBell() {
           if (!open) load();
           setOpen((v) => !v);
         }}
-        aria-label="Требуют внимания"
+        aria-label={count > 0 ? `Требуют внимания: ${count}` : 'Требуют внимания'}
+        aria-expanded={open}
         title="Посылки без клиента"
       >
         <IconAlert size={19} />
-        {count > 0 && <span className="bell-badge">{count > 8 ? '8+' : count}</span>}
+        {count > 0 && (
+          <span className="bell-badge" aria-hidden="true">
+            {count > 8 ? '8+' : count}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -76,7 +92,7 @@ export default function AlertsBell() {
                       <div className="mono strong truncate" style={{ fontSize: 13 }}>{p.track_number}</div>
                       <div className="muted truncate" style={{ fontSize: 12 }}>{p.product_title || 'товар не указан'}</div>
                     </div>
-                    <span className="muted" style={{ fontSize: 11.5 }}>{fmt(p.created_at)}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>{fmt(p.created_at)}</span>
                   </div>
                 ))}
               </div>

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { money } from '../money';
 import { ApiError, get } from '../api';
 import { statusMeta } from '../status';
+import { fmtDateTime } from '../format';
+import { useI18n } from '../i18n';
+import { useDialog } from '../ui/useDialog';
 import { IconClose, IconBox } from './Icons';
 
 export type Parcel = {
@@ -35,12 +38,13 @@ type HistoryItem = {
   created_at: string;
 };
 
-const fmt = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
-
 export default function ParcelDrawer({ parcel, onClose }: { parcel: Parcel; onClose: () => void }) {
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const { lang } = useI18n();
   const meta = statusMeta(parcel.status);
+  const drawerRef = useDialog<HTMLElement>({ onClose });
+  const titleId = useId();
+  const fmt = (iso?: string | null) => fmtDateTime(iso, lang);
 
   useEffect(() => {
     setHistory(null);
@@ -49,24 +53,27 @@ export default function ParcelDrawer({ parcel, onClose }: { parcel: Parcel; onCl
       .catch((_: ApiError) => setHistory([]));
   }, [parcel.id]);
 
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onEsc);
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [onClose]);
-
   return (
     <>
       <div className="drawer-overlay" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-label="Детали посылки">
+      <aside
+        ref={drawerRef}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <div className="drawer-head">
-          <span className="track mono">{parcel.track_number}</span>
+          <span className="track mono" id={titleId}>
+            {parcel.track_number}
+          </span>
           <span className={`badge tone-${meta.tone}`}>
             <span className="dot" />
             {meta.label}
           </span>
           <span className="spacer" />
-          <button className="x" onClick={onClose} aria-label="Закрыть">
+          <button className="x" data-dialog-dismiss onClick={onClose} aria-label="Закрыть">
             <IconClose size={20} />
           </button>
         </div>
@@ -74,7 +81,7 @@ export default function ParcelDrawer({ parcel, onClose }: { parcel: Parcel; onCl
         <div className="drawer-body">
           <div className="drawer-hero">
             {parcel.product_image ? (
-              <img src={parcel.product_image} alt="" />
+              <img src={parcel.product_image} alt="" width={64} height={64} />
             ) : (
               <span className="ph">
                 <IconBox size={26} />

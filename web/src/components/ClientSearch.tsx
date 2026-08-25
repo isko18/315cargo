@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { get } from '../api';
 import { useI18n } from '../i18n';
 import { IconSearch } from './Icons';
@@ -15,6 +15,9 @@ export type ClientHit = {
 /**
  * Живой поиск клиента: печатаешь имя/телефон/код → выпадающий список → выбор.
  * Меню position: fixed, чтобы не обрезалось внутри таблиц/карточек.
+ *
+ * Разметка комбобокса (role=combobox + listbox + aria-activedescendant) и
+ * стрелки ↑/↓ — оператору быстрее выбрать клиента, не снимая рук с клавиатуры.
  */
 export default function ClientSearch({
   onPick,
@@ -36,8 +39,10 @@ export default function ClientSearch({
   const [results, setResults] = useState<ClientHit[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   useEffect(() => {
     const h = setTimeout(() => setDebounced(q.trim()), 250);
@@ -55,6 +60,7 @@ export default function ClientSearch({
       .then((d: any) => {
         if (!cancelled) {
           setResults(d as ClientHit[]);
+          setActive(0);
           setOpen(true);
         }
       })
@@ -100,6 +106,26 @@ export default function ClientSearch({
   }
 
   const showMenu = open && debounced.length >= 1 && rect;
+  const hits = results ?? [];
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!hits.length) return;
+      e.preventDefault();
+      setOpen(true);
+      setActive((i) => (e.key === 'ArrowDown' ? (i + 1) % hits.length : (i - 1 + hits.length) % hits.length));
+      return;
+    }
+    if (e.key === 'Enter') {
+      const hit = open && hits[active] ? hits[active] : hits.length === 1 ? hits[0] : null;
+      if (hit) {
+        e.preventDefault();
+        pick(hit);
+      }
+      return;
+    }
+    if (e.key === 'Escape') setOpen(false);
+  }
 
   return (
     <div className={`client-search ${size === 'sm' ? 'cs-sm' : ''}`} ref={wrapRef}>
@@ -111,28 +137,39 @@ export default function ClientSearch({
           setOpen(true);
         }}
         onFocus={() => results && setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && results && results.length === 1) {
-            e.preventDefault();
-            pick(results[0]);
-          } else if (e.key === 'Escape') {
-            setOpen(false);
-          }
-        }}
+        onKeyDown={onKeyDown}
         placeholder={placeholder ?? t('clientsearch.placeholder')}
         autoComplete="off"
+        spellCheck={false}
         autoFocus={autoFocus}
+        role="combobox"
+        aria-expanded={Boolean(showMenu)}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={showMenu && hits[active] ? `${listId}-${hits[active].id}` : undefined}
       />
       {showMenu && (
         <div
           className="cs-menu"
+          id={listId}
+          role="listbox"
+          aria-label={t('clientsearch.results')}
           style={{ position: 'fixed', top: rect!.top, left: rect!.left, width: rect!.width }}
         >
           {loading && !results ? (
             <div className="cs-empty">{t('common.loading')}</div>
-          ) : results && results.length ? (
-            results.map((c) => (
-              <button type="button" key={c.id} className="cs-item" onClick={() => pick(c)}>
+          ) : hits.length ? (
+            hits.map((c, i) => (
+              <button
+                type="button"
+                key={c.id}
+                id={`${listId}-${c.id}`}
+                role="option"
+                aria-selected={i === active}
+                className={`cs-item ${i === active ? 'is-active' : ''}`}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => pick(c)}
+              >
                 <span className="cs-name">{c.full_name || '—'}</span>
                 <span className="cs-meta">
                   <span className="mono">{c.client_code}</span>

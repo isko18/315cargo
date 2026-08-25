@@ -136,7 +136,7 @@ export default function AnalyticsPage() {
       render: (c) => (
         <div>
           <div className="strong">{c.full_name || '—'}</div>
-          <div className="muted mono" style={{ fontSize: 12.5 }}>{c.client_code}</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{c.client_code}</div>
         </div>
       ),
     },

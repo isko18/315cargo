@@ -23,6 +23,7 @@ import {
   Input,
   PageHeader,
   Segmented,
+  useToast,
   type SegmentedOption,
 } from '../ui';
 
@@ -52,6 +53,7 @@ type Entry = { result: string; parcel: Parcel };
 
 export default function ScanPage() {
   const { t } = useI18n();
+  const toast = useToast();
   const { points, activeId } = usePickup();
   const activePoint = points.find((p) => p.id === activeId);
   // «Карго ID» нужен только супер-админу (у него нет своего карго). У обычного
@@ -85,8 +87,12 @@ export default function ScanPage() {
       setLog((l) => [r, ...l]);
       setTrack('');
       setWeight('');
+      // Оператор в этот момент смотрит на сканер, а не на экран — сообщаем тостом.
+      toast.success(t('toast.scanOk'), `${r.parcel.track_number} · ${t(`result.${r.result}`)}`);
     } catch (e) {
-      setErr((e as ApiError).message);
+      const msg = (e as ApiError).message;
+      setErr(msg);
+      toast.error(t('toast.error'), msg);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -108,8 +114,11 @@ export default function ScanPage() {
     try {
       const updated = await post<Parcel>(`/api/parcels/${entryId}/assign/`, { client_code: cc });
       setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
+      toast.success(t('toast.assignOk'), `${updated.track_number} → ${cc}`);
     } catch (e) {
-      setErr((e as ApiError).message);
+      const msg = (e as ApiError).message;
+      setErr(msg);
+      toast.error(t('toast.error'), msg);
     }
   }
 
@@ -122,7 +131,9 @@ export default function ScanPage() {
       });
       setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
     } catch (e) {
-      setErr((e as ApiError).message);
+      const msg = (e as ApiError).message;
+      setErr(msg);
+      toast.error(t('toast.error'), msg);
       throw e;
     }
   }

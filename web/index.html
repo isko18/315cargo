@@ -2,8 +2,46 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="315CARGO — админ-панель логистики: приём, выдача, склад, клиенты и аналитика." />
+    <meta name="theme-color" content="#f2f5f9" />
+    <meta name="color-scheme" content="light dark" />
     <title>315CARGO — админ</title>
+    <!-- Инлайн-SVG: без отдельного запроса и без 404 на /favicon.ico. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d0021b'/%3E%3Ctext x='16' y='21' font-family='Segoe UI,Arial,sans-serif' font-size='13' font-weight='700' fill='%23fff' text-anchor='middle'%3E315%3C/text%3E%3C/svg%3E"
+    />
+
+    <!-- Шрифт: preconnect убирает лишний раундтрип, display=swap — FOIT. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    />
+
+    <!--
+      Тема применяется ДО первой отрисовки, иначе тёмная тема мигает белым.
+      Ключ и логика должны совпадать с src/theme.tsx.
+    -->
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('theme') || 'auto';
+          var dark =
+            mode === 'dark' ||
+            (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          root.setAttribute('data-theme', dark ? 'dark' : 'light');
+          root.style.colorScheme = dark ? 'dark' : 'light';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#0b1120' : '#f2f5f9');
+          var lang = localStorage.getItem('lang');
+          if (lang === 'zh') root.lang = 'zh-Hans';
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
