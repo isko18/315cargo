@@ -124,6 +124,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
     client_code_next = serializers.CharField(source="next_client_code", read_only=True)
     invite_url = serializers.SerializerMethodField()
     invite_qr = serializers.SerializerMethodField()
+    play_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CargoCompany
@@ -144,6 +145,7 @@ class MyCargoSerializer(serializers.ModelSerializer):
             "client_code_next",
             "invite_url",
             "invite_qr",
+            "play_url",
             "is_active",
             "created_at",
             "updated_at",
@@ -173,6 +175,14 @@ class MyCargoSerializer(serializers.ModelSerializer):
     def get_invite_qr(self, obj):
         return invite_qr_data_uri(self.get_invite_url(obj))
 
+    def get_play_url(self, obj):
+        # Прямая ссылка на Play с Install Referrer — запасной вариант для тех,
+        # у кого приложения точно нет. Основная ссылка для раздачи всё равно
+        # invite_url: она ведёт в приложение, если оно уже установлено.
+        from common.invites import play_store_url_for
+
+        return play_store_url_for(obj.slug)
+
 
 class CargoOverviewItemSerializer(serializers.Serializer):
     id = serializers.IntegerField()
@@ -200,6 +210,7 @@ class AdminCargoSerializer(serializers.ModelSerializer):
     client_code_next = serializers.CharField(source="next_client_code", read_only=True)
     invite_url = serializers.SerializerMethodField()
     invite_qr = serializers.SerializerMethodField()
+    play_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CargoCompany
@@ -218,6 +229,7 @@ class AdminCargoSerializer(serializers.ModelSerializer):
             "client_code_next",
             "invite_url",
             "invite_qr",
+            "play_url",
             "is_active",
             "created_at",
             "updated_at",
@@ -238,6 +250,14 @@ class AdminCargoSerializer(serializers.ModelSerializer):
 
     def get_invite_qr(self, obj):
         return invite_qr_data_uri(self.get_invite_url(obj))
+
+    def get_play_url(self, obj):
+        # Прямая ссылка на Play с Install Referrer — запасной вариант для тех,
+        # у кого приложения точно нет. Основная ссылка для раздачи всё равно
+        # invite_url: она ведёт в приложение, если оно уже установлено.
+        from common.invites import play_store_url_for
+
+        return play_store_url_for(obj.slug)
 
 
 class AdminCreateCargoSerializer(serializers.Serializer):

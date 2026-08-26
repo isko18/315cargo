@@ -100,7 +100,7 @@ export default function OverviewPage() {
   const [banner, setBanner] = useState('');
 
   // Ссылка-приглашение редактируемого карго (приходит с бэкенда вместе с QR).
-  const [invite, setInvite] = useState<{ url: string; qr: string } | null>(null);
+  const [invite, setInvite] = useState<{ url: string; qr: string; playUrl: string } | null>(null);
   // Общий адрес склада в Китае — из него собирается предпросмотр для карго.
   const [address, setAddress] = useState<(AddressParts & { is_active?: boolean }) | null>(null);
   // Сброс пароля владельца (в режиме редактирования).
@@ -175,7 +175,7 @@ export default function OverviewPage() {
         price_per_kg_kgs: String(c.price_per_kg_kgs ?? ''),
         is_active: Boolean(c.is_active),
       });
-      setInvite(c.invite_url ? { url: c.invite_url, qr: c.invite_qr } : null);
+      setInvite(c.invite_url ? { url: c.invite_url, qr: c.invite_qr, playUrl: c.play_url } : null);
       setAdmins(adm);
       if (adm.length) setOwnerId(String(adm[0].id));
     } catch (e) {
@@ -531,7 +531,7 @@ export default function OverviewPage() {
                 {invite && (
                   <>
                     <div className="section-title" style={{ margin: '22px 0 12px' }}>{t('invite.card')}</div>
-                    <InviteLink url={invite.url} qr={invite.qr} />
+                    <InviteLink url={invite.url} qr={invite.qr} playUrl={invite.playUrl} />
                   </>
                 )}
 

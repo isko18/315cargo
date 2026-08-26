@@ -27,6 +27,7 @@ type MyCargo = {
   client_code_next: string;
   invite_url: string;
   invite_qr: string;
+  play_url: string;
 };
 
 // Ширина номера в клиентском коде — зеркалит CLIENT_CODE_DIGITS на бэкенде.
@@ -135,7 +136,7 @@ export default function CargoSettingsPage() {
         <Card>
           <CardHeader title={t('invite.card')} description={t('invite.cardDesc')} />
           <CardBody>
-            <InviteLink url={cargo.invite_url} qr={cargo.invite_qr} />
+            <InviteLink url={cargo.invite_url} qr={cargo.invite_qr} playUrl={cargo.play_url} />
           </CardBody>
         </Card>
       )}

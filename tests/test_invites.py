@@ -5,6 +5,7 @@ import json
 import pytest
 from django.urls import reverse
 
+from common.invites import play_store_url_for
 from tests.factories import CargoCompanyFactory
 
 
@@ -153,3 +154,19 @@ def test_invite_page_shows_cargo_code_as_ios_fallback(client):
 
     body = client.get(f"/j/{cargo.slug}").content.decode()
     assert "IOS-FALLBACK" in body
+
+
+@pytest.mark.django_db
+def test_owner_sees_play_url_with_referrer(cargo_admin_client, cargo):
+    """Админка не может показать ссылку, которой нет в ответе API."""
+    response = cargo_admin_client.get("/api/manage/cargo/")
+    assert response.status_code == 200
+    assert response.data["play_url"] == play_store_url_for(cargo.slug)
+    assert f"referrer=cargo%3D{cargo.slug}" in response.data["play_url"]
+
+
+@pytest.mark.django_db
+def test_super_owner_sees_play_url_with_referrer(superuser_client, cargo):
+    response = superuser_client.get(f"/api/admin/cargos/{cargo.id}/")
+    assert response.status_code == 200
+    assert response.data["play_url"] == play_store_url_for(cargo.slug)
