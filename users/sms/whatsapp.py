@@ -29,7 +29,10 @@ def normalize_phone_for_whatsapp(phone: str) -> str:
 
 
 def build_otp_text(code: str) -> str:
-    brand = getattr(settings, "NIKITA_SMS_BRAND", "315CARGO")
+    # Бренд отдельный от SMS: там в NIKITA_SMS_BRAND лежит идентификатор
+    # отправителя, согласованный с оператором (например «SMSPRO.KG»). В SMS он
+    # уместен, а в WhatsApp клиент увидит незнакомое имя и примет код за фишинг.
+    brand = getattr(settings, "WHATSAPP_BRAND", "") or "315CARGO"
     return f"{brand}: код подтверждения {code}. Действителен 5 мин."
 
 

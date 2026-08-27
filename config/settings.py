@@ -240,6 +240,8 @@ OTP_CHANNELS = os.getenv("OTP_CHANNELS", "sms")  # напр. "whatsapp,sms"
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "")
 WHATSAPP_API_KEY = os.getenv("WHATSAPP_API_KEY", "")
 WHATSAPP_SESSION = os.getenv("WHATSAPP_SESSION", "default")
+# Имя отправителя в тексте кода. Своё, не SMS-овское: см. build_otp_text.
+WHATSAPP_BRAND = os.getenv("WHATSAPP_BRAND", "315CARGO")
 WHATSAPP_TIMEOUT = int(os.getenv("WHATSAPP_TIMEOUT", "15"))
 
 NIKITA_SMS_LOGIN = os.getenv("NIKITA_SMS_LOGIN", os.getenv("SMS_PROVIDER_LOGIN", ""))

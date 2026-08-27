@@ -137,3 +137,14 @@ def test_phone_normalized_to_digits():
 def test_whatsapp_without_url_raises():
     with pytest.raises(SmsBackendError):
         WahaWhatsAppBackend(base_url="").send_otp("+996700000000", "1234", "login", "M1")
+
+
+@override_settings(WHATSAPP_BRAND="315CARGO", NIKITA_SMS_BRAND="SMSPRO.KG")
+def test_whatsapp_text_uses_own_brand_not_sms_sender():
+    """В NIKITA_SMS_BRAND лежит идентификатор отправителя оператора связи.
+    В WhatsApp он читается как чужая рассылка, поэтому бренд отдельный."""
+    from users.sms.whatsapp import build_otp_text
+
+    text = build_otp_text("1234")
+    assert text.startswith("315CARGO:")
+    assert "SMSPRO" not in text
