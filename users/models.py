@@ -162,7 +162,9 @@ class SMSCode(models.Model):
     expires_at = models.DateTimeField(_("Истекает"))
     provider_message_id = models.CharField(
         _("ID сообщения у провайдера"),
-        max_length=12,
+        # 12 хватало только на свой сгенерированный id. У внешних каналов он
+        # свой и длиннее: WhatsApp отдаёт вида 3EB0274875286487CCC0AD (22).
+        max_length=64,
         blank=True,
         db_index=True,
     )

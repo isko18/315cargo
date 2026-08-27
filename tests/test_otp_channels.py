@@ -148,3 +148,30 @@ def test_whatsapp_text_uses_own_brand_not_sms_sender():
     text = build_otp_text("1234")
     assert text.startswith("315CARGO:")
     assert "SMSPRO" not in text
+
+
+@pytest.mark.django_db
+def test_provider_message_id_fits_external_ids():
+    """Свой message_id был 12 символов, и поле сделали ровно под него.
+
+    WhatsApp возвращает свой id (3EB0274875286487CCC0AD, 22 символа) — на
+    Postgres это роняло send-code пятисоткой. В тестах на SQLite длина varchar
+    не проверяется вообще, поэтому валидируем через full_clean(): иначе
+    регрессия снова уедет на прод незамеченной.
+    """
+    from django.utils import timezone
+
+    from users.models import SMSCode
+
+    code = SMSCode(
+        phone="+996700777777",
+        code="1234",
+        purpose=SMSCode.Purpose.LOGIN,
+        expires_at=SMSCode.default_expires_at(),
+        provider_message_id="3EB0274875286487CCC0AD",
+        channel="whatsapp",
+    )
+    code.full_clean(exclude=["cargo"])  # не должно бросить ValidationError
+    code.save()
+    assert SMSCode.objects.get(pk=code.pk).provider_message_id.endswith("CCC0AD")
+    assert timezone.now() < code.expires_at
