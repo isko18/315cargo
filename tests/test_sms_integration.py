@@ -33,7 +33,8 @@ def test_send_sms_code_nikita_failure_deletes_nothing(monkeypatch, api_client):
     def fail(*args, **kwargs):
         raise SmsBackendError("Недостаточно средств", status_code=4)
 
-    monkeypatch.setattr("users.services.get_sms_backend", lambda: type("B", (), {"send_otp": fail})())
+    backend = type("B", (), {"send_otp": fail})()
+    monkeypatch.setattr("users.services.get_otp_backends", lambda: [("sms", backend)])
 
     with pytest.raises(ValidationError):
         send_sms_code("+996700555555")
@@ -52,7 +53,7 @@ def test_send_sms_code_nikita_success(monkeypatch):
         def send_otp(self, phone, code, purpose, message_id):
             return {"message_id": message_id, "provider": "nikita"}
 
-    monkeypatch.setattr("users.services.get_sms_backend", lambda: FakeBackend())
+    monkeypatch.setattr("users.services.get_otp_backends", lambda: [("sms", FakeBackend())])
     sms = send_sms_code("+996700666666")
     assert sms.provider_message_id
     assert sms.code

@@ -231,6 +231,17 @@ SPECTACULAR_SETTINGS = {
 }
 
 SMS_BACKEND = os.getenv("SMS_BACKEND", "auto")  # auto | mock | nikita
+# Каналы доставки OTP по порядку. Первый доставивший останавливает перебор,
+# поэтому дешёвый WhatsApp стоит перед SMS. Убрать WhatsApp — убрать из списка.
+OTP_CHANNELS = os.getenv("OTP_CHANNELS", "sms")  # напр. "whatsapp,sms"
+
+# Self-hosted шлюз WhatsApp (WAHA). Держит сессию обычного аккаунта и отдаёт
+# REST API; слушает только localhost, наружу не публикуется.
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "")
+WHATSAPP_API_KEY = os.getenv("WHATSAPP_API_KEY", "")
+WHATSAPP_SESSION = os.getenv("WHATSAPP_SESSION", "default")
+WHATSAPP_TIMEOUT = int(os.getenv("WHATSAPP_TIMEOUT", "15"))
+
 NIKITA_SMS_LOGIN = os.getenv("NIKITA_SMS_LOGIN", os.getenv("SMS_PROVIDER_LOGIN", ""))
 NIKITA_SMS_PASSWORD = os.getenv("NIKITA_SMS_PASSWORD", os.getenv("SMS_PROVIDER_PASSWORD", ""))
 NIKITA_SMS_SENDER = os.getenv("NIKITA_SMS_SENDER", os.getenv("SMS_PROVIDER_SENDER", "315CARGO"))

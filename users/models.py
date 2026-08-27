@@ -142,6 +142,10 @@ class SMSCode(models.Model):
         REGISTER = "register", _("Регистрация")
         LOGIN = "login", _("Вход")
 
+    class Channel(models.TextChoices):
+        SMS = "sms", _("SMS")
+        WHATSAPP = "whatsapp", _("WhatsApp")
+
     cargo = models.ForeignKey(
         "cargo.CargoCompany",
         on_delete=models.CASCADE,
@@ -161,6 +165,13 @@ class SMSCode(models.Model):
         max_length=12,
         blank=True,
         db_index=True,
+    )
+    channel = models.CharField(
+        _("Канал доставки"),
+        max_length=16,
+        choices=Channel.choices,
+        blank=True,
+        help_text=_("Каким каналом код реально ушёл. Пусто — доставка не удалась."),
     )
     created_at = models.DateTimeField(_("Создан"), auto_now_add=True)
 

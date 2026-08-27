@@ -15,7 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .constants import MAX_OTP_ATTEMPTS, OTP_CODE_LENGTH
 from .models import SMSCode, User
-from .sms import get_sms_backend
+from .sms import get_otp_backends
 from .sms.exceptions import SmsBackendError
 
 logger = logging.getLogger(__name__)
@@ -107,18 +107,38 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
 
     code = "".join(random.choices(string.digits, k=OTP_CODE_LENGTH))
     message_id = _generate_sms_message_id()
-    backend = get_sms_backend()
 
-    try:
-        result = backend.send_otp(phone, code, purpose, message_id)
-    except SmsBackendError as exc:
+    # Каскад каналов: первый доставивший останавливает перебор. WhatsApp стоит
+    # перед SMS не только из-за цены — у номера может не быть WhatsApp, и тогда
+    # шлюз отвечает ошибкой, а человек всё равно получает код по SMS.
+    result = None
+    channel = None
+    exc = None
+    for name, backend in get_otp_backends():
+        try:
+            result = backend.send_otp(phone, code, purpose, message_id)
+            channel = name
+            break
+        except SmsBackendError as channel_exc:
+            exc = channel_exc
+            logger.warning(
+                "OTP channel failed, trying next",
+                extra={
+                    "phone": phone,
+                    "channel": name,
+                    "status_code": channel_exc.status_code,
+                    "provider_message": channel_exc.provider_message,
+                },
+            )
+
+    if result is None:
         logger.error(
-            "SMS delivery failed",
+            "OTP delivery failed on all channels",
             extra={
                 "phone": phone,
                 "purpose": purpose,
-                "status_code": exc.status_code,
-                "provider_message": exc.provider_message,
+                "status_code": exc.status_code if exc else None,
+                "provider_message": exc.provider_message if exc else "",
             },
         )
         # Есть резервный мастер-код → не блокируем регистрацию/вход при сбое SMS:
@@ -135,10 +155,10 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
                 expires_at=SMSCode.default_expires_at(),
                 provider_message_id=message_id,
             )
-        error_detail = {"detail": str(exc)}
-        if exc.status_code is not None:
+        error_detail = {"detail": str(exc) if exc else "Не удалось отправить код"}
+        if exc is not None and exc.status_code is not None:
             error_detail["sms_status"] = exc.status_code
-        if exc.provider_message:
+        if exc is not None and exc.provider_message:
             error_detail["sms_provider_message"] = exc.provider_message
         raise ValidationError(error_detail) from exc
 
@@ -149,12 +169,14 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
         purpose=purpose,
         expires_at=SMSCode.default_expires_at(),
         provider_message_id=result.get("message_id", message_id),
+        channel=channel or "",
     )
     logger.info(
-        "SMS OTP sent",
+        "OTP sent",
         extra={
             "phone": phone,
             "purpose": purpose,
+            "channel": channel,
             "provider": result.get("provider"),
             "message_id": sms_code.provider_message_id,
         },
