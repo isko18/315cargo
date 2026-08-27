@@ -1,0 +1,11 @@
+[Unit]
+Description=Сторож сессии WhatsApp каждые 3 минуты
+
+[Timer]
+# Первый прогон через минуту после загрузки: контейнеру нужно время подняться.
+OnBootSec=60
+OnUnitActiveSec=3min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

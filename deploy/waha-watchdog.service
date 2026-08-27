@@ -1,0 +1,8 @@
+[Unit]
+Description=Проверка сессии WhatsApp (WAHA) и перезапуск при зависании
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/waha-watchdog.sh
