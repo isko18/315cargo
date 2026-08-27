@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Привязка WhatsApp — 315CARGO</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f2f5f9; --card:#fff; --text:#0f1728; --muted:#5a6675;
+          --line:#e8ecf3; --brand:#d0021b; --ok:#12833c; --ok-bg:#e7f6ec; --warn:#b45309; --warn-bg:#fdf2e2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1120; --card:#141b2b; --text:#e8eef9; --muted:#a2b0c6; --line:#26314a;
+            --brand:#f0324a; --ok:#4ade80; --ok-bg:rgba(34,197,94,.14); --warn:#fbbf24; --warn-bg:rgba(245,158,11,.14); }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100dvh; display:grid; place-items:center; padding:20px;
+         background:var(--bg); color:var(--text);
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; }
+  .card { width:440px; max-width:100%; background:var(--card); border:1px solid var(--line);
+          border-radius:16px; padding:26px; box-shadow:0 8px 24px -12px rgba(16,24,40,.25); }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .state { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:9px;
+           font-size:13.5px; font-weight:600; margin-bottom:16px; background:var(--warn-bg); color:var(--warn); }
+  .state.ok { background:var(--ok-bg); color:var(--ok); }
+  .dot { width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
+  .qr { display:grid; place-items:center; min-height:280px; border:1px dashed var(--line);
+        border-radius:12px; background:#fff; padding:12px; }
+  .qr img { width:100%; max-width:256px; display:block; }
+  .qr p { color:#5a6675; font-size:13px; text-align:center; margin:0; }
+  ol { margin:16px 0 0; padding-left:20px; color:var(--muted); font-size:13.5px; }
+  ol li { margin-bottom:5px; }
+  .row { display:flex; gap:10px; margin-top:18px; }
+  button { flex:1; padding:11px 16px; border-radius:9px; border:1px solid var(--line);
+           background:var(--card); color:var(--text); font:inherit; font-weight:600; cursor:pointer; }
+  button.primary { background:var(--brand); color:#fff; border-color:transparent; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .done { text-align:center; padding:24px 0; }
+  .done .big { font-size:34px; }
+  .done .who { font-weight:700; margin-top:8px; font-size:17px; }
+  .done .note { color:var(--muted); font-size:13.5px; margin-top:6px; }
+  code { background:var(--bg); padding:2px 6px; border-radius:5px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Привязка WhatsApp</h1>
+  <div class="sub">Сессия <code>{{ session }}</code> · канал OTP: <code>{{ channels }}</code></div>
+
+  {% if not configured %}
+    <div class="state"><span class="dot"></span>WHATSAPP_API_URL не задан в .env</div>
+  {% else %}
+    <div class="state" id="state"><span class="dot"></span><span id="state-text">Проверяем…</span></div>
+
+    <div class="qr" id="qr-box"><p>Загружаем QR…</p></div>
+
+    <ol id="steps">
+      <li>Открой WhatsApp на телефоне, с номера которого пойдут коды</li>
+      <li>Настройки → <b>Связанные устройства</b> → <b>Привязка устройства</b></li>
+      <li>Наведи камеру на QR выше</li>
+    </ol>
+
+    <div class="row">
+      <button id="refresh">Обновить QR</button>
+      <button id="restart" class="primary">Перезапустить сессию</button>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  var box = document.getElementById('qr-box');
+  if (!box) return;
+  var stateEl = document.getElementById('state');
+  var stateText = document.getElementById('state-text');
+  var steps = document.getElementById('steps');
+  var timer = null;
+
+  var LABEL = {
+    WORKING: 'Подключено',
+    SCAN_QR_CODE: 'Ждёт сканирования QR',
+    STARTING: 'Запускается, подождите…',
+    STOPPED: 'Остановлена',
+    FAILED: 'Сбой сессии — попробуйте перезапустить',
+    NO_SESSION: 'Сессия не создана — нажмите «Перезапустить сессию»',
+    GATEWAY_DOWN: 'Шлюз недоступен (контейнер waha не отвечает)',
+    ERROR: 'Ошибка шлюза'
+  };
+
+  // QR живёт около 20 секунд, поэтому картинку перезапрашиваем с новым query.
+  function drawQr() {
+    var img = new Image();
+    img.onload = function () { box.innerHTML = ''; box.appendChild(img); };
+    img.onerror = function () { box.innerHTML = '<p>QR пока недоступен</p>'; };
+    img.alt = 'QR для привязки WhatsApp';
+    img.src = 'qr.png?t=' + Date.now();
+  }
+
+  function connected(d) {
+    if (timer) { clearInterval(timer); timer = null; }
+    stateEl.className = 'state ok';
+    stateText.textContent = LABEL.WORKING;
+    if (steps) steps.style.display = 'none';
+    box.innerHTML = '<div class="done"><div class="big">✅</div>'
+      + '<div class="who">' + (d.phone ? '+' + d.phone : 'Номер привязан') + '</div>'
+      + '<div class="note">' + (d.name ? d.name + ' · ' : '')
+      + 'Можно закрывать страницу</div></div>';
+  }
+
+  function poll() {
+    fetch('status/', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.status === 'WORKING') { connected(d); return; }
+        stateEl.className = 'state';
+        stateText.textContent = LABEL[d.status] || d.status;
+        if (d.status === 'SCAN_QR_CODE') drawQr();
+        else box.innerHTML = '<p>' + (LABEL[d.status] || d.status) + '</p>';
+      })
+      .catch(function () { stateText.textContent = 'Нет связи со страницей'; });
+  }
+
+  function csrf() {
+    var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+
+  document.getElementById('refresh').onclick = poll;
+  document.getElementById('restart').onclick = function () {
+    var b = this;
+    b.disabled = true;
+    b.textContent = 'Перезапускаем…';
+    fetch('restart/', { method: 'POST', credentials: 'same-origin',
+                        headers: { 'X-CSRFToken': csrf() } })
+      .then(function () { setTimeout(poll, 4000); })
+      .finally(function () {
+        setTimeout(function () { b.disabled = false; b.textContent = 'Перезапустить сессию'; }, 4000);
+      });
+  };
+
+  poll();
+  timer = setInterval(poll, 8000);
+})();
+</script>
+</body>
+</html>

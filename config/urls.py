@@ -17,7 +17,7 @@ from cargo.views import (
     CargoDashboardAPIView,
     MyCargoAPIView,
 )
-from common import invites
+from common import invites, waha
 from common.views import DeliveryAddressAPIView
 from city_delivery.views import (
     CityDeliveryRequestViewSet,
@@ -84,6 +84,13 @@ _delete_account_view = TemplateView.as_view(
 )
 
 urlpatterns = [
+    # Раньше admin.site.urls — иначе catch-all админки перехватит эти пути.
+    # Страница привязки WhatsApp: сам шлюз слушает только localhost, наружу
+    # выведены QR и статус под авторизацией администратора.
+    path("admin/whatsapp/", waha.qr_page, name="whatsapp-qr"),
+    path("admin/whatsapp/qr.png", waha.qr_image, name="whatsapp-qr-image"),
+    path("admin/whatsapp/status/", waha.qr_status, name="whatsapp-qr-status"),
+    path("admin/whatsapp/restart/", waha.session_restart, name="whatsapp-qr-restart"),
     path("admin/", admin.site.urls),
     # Верификация домена для App Links / Universal Links. Пути фиксированы
     # операционными системами: ровно 200, application/json, без редиректов.
