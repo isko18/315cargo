@@ -204,3 +204,38 @@ def test_provider_message_id_fits_external_ids():
     code.save()
     assert SMSCode.objects.get(pk=code.pk).provider_message_id.endswith("CCC0AD")
     assert timezone.now() < code.expires_at
+
+
+@pytest.mark.django_db
+def test_send_code_response_reports_channel(api_client, monkeypatch):
+    """Приложению нужно знать, куда ушёл код, — иначе оно не скажет, где искать."""
+    monkeypatch.setattr(
+        "users.services.get_otp_backends",
+        lambda: [("whatsapp", OkBackend("whatsapp"))],
+    )
+    cargo = CargoCompanyFactory()
+
+    response = api_client.post(
+        "/api/auth/send-code/",
+        {"phone": "+996700888888", "cargo_id": cargo.id, "purpose": "register"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["channel"] == "whatsapp"
+
+
+@pytest.mark.django_db
+def test_send_code_channel_empty_for_test_number(api_client, settings):
+    """У тестового номера доставки нет — поле должно быть пустым, а не «sms»."""
+    settings.OTP_TEST_NUMBERS = {"+996700000000": "0000"}
+    cargo = CargoCompanyFactory()
+
+    response = api_client.post(
+        "/api/auth/send-code/",
+        {"phone": "+996700000000", "cargo_id": cargo.id, "purpose": "register"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["channel"] == ""

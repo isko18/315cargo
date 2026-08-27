@@ -66,8 +66,11 @@ class AuthViewSet(GenericViewSet):
         serializer = SendCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data.copy()
-        send_sms_code(**data)
-        payload = {"detail": "SMS code sent"}
+        code = send_sms_code(**data)
+        # Канал нужен приложению, чтобы написать, где искать код: «проверьте
+        # SMS» при доставке в WhatsApp сбивает с толку и порождает обращения.
+        # Пусто — доставки не было (тестовый номер или отказ всех каналов).
+        payload = {"detail": "SMS code sent", "channel": getattr(code, "channel", "") or ""}
         if settings.NIKITA_SMS_TEST:
             payload["warning"] = (
                 "NIKITA_SMS_TEST=1: SMS не отправляется на телефон, "
