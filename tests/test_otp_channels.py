@@ -146,8 +146,37 @@ def test_whatsapp_text_uses_own_brand_not_sms_sender():
     from users.sms.whatsapp import build_otp_text
 
     text = build_otp_text("1234")
-    assert text.startswith("315CARGO:")
+    assert "*315CARGO*" in text
     assert "SMSPRO" not in text
+
+
+@override_settings(WHATSAPP_BRAND="315CARGO")
+def test_whatsapp_text_marks_brand_and_code_bold():
+    from users.sms.whatsapp import build_otp_text
+
+    text = build_otp_text("1234")
+    assert text.startswith("*315CARGO*")
+    assert "*1234*" in text
+
+
+def test_sms_text_has_no_whatsapp_markup():
+    """В SMS разметки быть не должно — звёздочки придут клиенту как есть."""
+    from users.sms.nikita import build_otp_text
+
+    assert "*" not in build_otp_text("1234")
+
+
+def test_otp_lifetime_in_text_matches_real_expiry():
+    """Срок в сообщении и реальный TTL — из одной константы, иначе разъедутся."""
+    from django.utils import timezone
+
+    from users.constants import OTP_TTL_MINUTES
+    from users.models import SMSCode
+    from users.sms.whatsapp import build_otp_text
+
+    assert f"{OTP_TTL_MINUTES} мин" in build_otp_text("1234")
+    left = (SMSCode.default_expires_at() - timezone.now()).total_seconds() / 60
+    assert abs(left - OTP_TTL_MINUTES) < 0.5
 
 
 @pytest.mark.django_db

@@ -5,7 +5,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from .constants import OTP_CODE_LENGTH
+from .constants import OTP_CODE_LENGTH, OTP_TTL_MINUTES
 
 
 class UserManager(BaseUserManager):
@@ -188,7 +188,7 @@ class SMSCode(models.Model):
 
     @classmethod
     def default_expires_at(cls):
-        return timezone.now() + timedelta(minutes=5)
+        return timezone.now() + timedelta(minutes=OTP_TTL_MINUTES)
 
     def __str__(self):
         return f"{self.phone} {self.purpose}"

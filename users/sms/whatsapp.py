@@ -18,6 +18,7 @@ import logging
 import requests
 from django.conf import settings
 
+from ..constants import OTP_TTL_MINUTES
 from .exceptions import SmsBackendError
 
 logger = logging.getLogger(__name__)
@@ -29,11 +30,21 @@ def normalize_phone_for_whatsapp(phone: str) -> str:
 
 
 def build_otp_text(code: str) -> str:
-    # Бренд отдельный от SMS: там в NIKITA_SMS_BRAND лежит идентификатор
-    # отправителя, согласованный с оператором (например «SMSPRO.KG»). В SMS он
-    # уместен, а в WhatsApp клиент увидит незнакомое имя и примет код за фишинг.
+    """Текст кода для WhatsApp.
+
+    Бренд отдельный от SMS: в NIKITA_SMS_BRAND лежит идентификатор отправителя,
+    согласованный с оператором (на проде «SMSPRO.KG»). В SMS он уместен, а в
+    WhatsApp клиент увидит незнакомое имя и примет код за фишинг.
+
+    Разметка — WhatsApp-овская: `*` даёт жирный. В SMS её быть не должно, там
+    звёздочки покажутся мусором, поэтому у SMS свой build_otp_text.
+    """
     brand = getattr(settings, "WHATSAPP_BRAND", "") or "315CARGO"
-    return f"{brand}: код подтверждения {code}. Действителен 5 мин."
+    return (
+        f"*{brand}*\n\n"
+        f"Ваш код подтверждения: *{code}*\n\n"
+        f"Действителен {OTP_TTL_MINUTES} мин. Никому не сообщайте этот код."
+    )
 
 
 class WahaWhatsAppBackend:
