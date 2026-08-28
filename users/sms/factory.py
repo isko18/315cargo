@@ -2,6 +2,7 @@ from django.conf import settings
 
 from .mock import MockSmsBackend
 from .nikita import NikitaSmsBackend
+from .meta_whatsapp import MetaWhatsAppBackend
 from .whatsapp import WahaWhatsAppBackend
 
 
@@ -23,6 +24,16 @@ def get_sms_backend():
 
 
 def _whatsapp_backend():
+    """Канал один — «whatsapp», провайдер под ним меняется переменной.
+
+    Так переход с self-hosted шлюза на Meta не задевает ни OTP_CHANNELS, ни
+    приложение: в ответе send-code и в SMSCode.channel по-прежнему "whatsapp".
+    """
+    provider = (getattr(settings, "WHATSAPP_PROVIDER", "") or "waha").lower()
+    if provider == "meta":
+        if not (settings.META_WA_PHONE_NUMBER_ID and settings.META_WA_TOKEN):
+            return MockSmsBackend()
+        return MetaWhatsAppBackend()
     if not settings.WHATSAPP_API_URL:
         # Канал включён, но шлюз не настроен — молча отдаём mock, чтобы разработка
         # и тесты не требовали поднятого WhatsApp.

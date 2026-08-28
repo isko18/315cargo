@@ -239,3 +239,85 @@ def test_send_code_channel_empty_for_test_number(api_client, settings):
 
     assert response.status_code == 200
     assert response.data["channel"] == ""
+
+
+# --- Meta Cloud API ---
+
+
+class FakeMetaResponse:
+    def __init__(self, status_code=200, payload=None, text=""):
+        self.status_code = status_code
+        self._payload = payload if payload is not None else {"messages": [{"id": "wamid.XYZ"}]}
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+@override_settings(
+    META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok",
+    META_WA_TEMPLATE="otp_code", META_WA_LANG="ru", META_WA_API_VERSION="v21.0",
+)
+def test_meta_payload_repeats_code_in_copy_button(monkeypatch):
+    """Код обязан идти и в теле, и в кнопке COPY_CODE.
+
+    Без кнопочного компонента Meta отклоняет отправку — а поймать это можно
+    только на живом шаблоне, поэтому проверяем форму запроса здесь.
+    """
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    sent = {}
+
+    def fake_post(url, **kwargs):
+        sent["url"] = url
+        sent["json"] = kwargs["json"]
+        sent["headers"] = kwargs["headers"]
+        return FakeMetaResponse()
+
+    monkeypatch.setattr("users.sms.meta_whatsapp.requests.post", fake_post)
+    result = MetaWhatsAppBackend().send_otp("+996 700-11-22-33", "1234", "login", "M1")
+
+    body, button = sent["json"]["template"]["components"]
+    assert body["parameters"][0]["text"] == "1234"
+    assert button["sub_type"] == "COPY_CODE"
+    assert button["parameters"][0]["coupon_code"] == "1234"
+    # Номер — только цифры, без «+» и разделителей.
+    assert sent["json"]["to"] == "996700112233"
+    assert sent["headers"]["Authorization"] == "Bearer tok"
+    assert "/v21.0/123/messages" in sent["url"]
+    assert result["message_id"] == "wamid.XYZ"
+
+
+@override_settings(META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok")
+def test_meta_error_becomes_backend_error(monkeypatch):
+    """Отказ Meta должен уводить каскад в SMS, а не всплывать пятисоткой."""
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    monkeypatch.setattr(
+        "users.sms.meta_whatsapp.requests.post",
+        lambda *a, **kw: FakeMetaResponse(status_code=400, text="template not approved"),
+    )
+    with pytest.raises(SmsBackendError):
+        MetaWhatsAppBackend().send_otp("+996700000000", "1234", "login", "M1")
+
+
+@override_settings(META_WA_PHONE_NUMBER_ID="", META_WA_TOKEN="")
+def test_meta_without_credentials_raises():
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    with pytest.raises(SmsBackendError):
+        MetaWhatsAppBackend().send_otp("+996700000000", "1234", "login", "M1")
+
+
+@override_settings(
+    OTP_CHANNELS="whatsapp,sms", WHATSAPP_PROVIDER="meta",
+    META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok",
+)
+def test_meta_provider_used_under_whatsapp_channel():
+    from users.sms.factory import get_otp_backends
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    backends = get_otp_backends()
+    names = [name for name, _ in backends]
+    assert names == ["whatsapp", "sms"]
+    assert isinstance(dict(backends)["whatsapp"], MetaWhatsAppBackend)

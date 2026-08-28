@@ -242,6 +242,18 @@ WHATSAPP_API_KEY = os.getenv("WHATSAPP_API_KEY", "")
 WHATSAPP_SESSION = os.getenv("WHATSAPP_SESSION", "default")
 # Имя отправителя в тексте кода. Своё, не SMS-овское: см. build_otp_text.
 WHATSAPP_BRAND = os.getenv("WHATSAPP_BRAND", "315CARGO")
+
+# Провайдер канала "whatsapp": waha (self-hosted) | meta (Cloud API).
+WHATSAPP_PROVIDER = os.getenv("WHATSAPP_PROVIDER", "waha")
+
+# --- WhatsApp Cloud API (Meta) ---
+# Текст сообщения задаёт Meta, мы передаём только код: см. meta_whatsapp.py.
+META_WA_PHONE_NUMBER_ID = os.getenv("META_WA_PHONE_NUMBER_ID", "")
+META_WA_TOKEN = os.getenv("META_WA_TOKEN", "")
+META_WA_TEMPLATE = os.getenv("META_WA_TEMPLATE", "otp_code")
+META_WA_LANG = os.getenv("META_WA_LANG", "ru")
+META_WA_API_VERSION = os.getenv("META_WA_API_VERSION", "v21.0")
+META_WA_TIMEOUT = int(os.getenv("META_WA_TIMEOUT", "15"))
 WHATSAPP_TIMEOUT = int(os.getenv("WHATSAPP_TIMEOUT", "15"))
 
 NIKITA_SMS_LOGIN = os.getenv("NIKITA_SMS_LOGIN", os.getenv("SMS_PROVIDER_LOGIN", ""))
