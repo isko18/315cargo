@@ -120,6 +120,20 @@ class VerifyCodeSerializer(serializers.Serializer):
         return attrs
 
 
+class CheckCodeSerializer(serializers.Serializer):
+    """Проверка кода до сбора данных регистрации: полей анкеты здесь нет."""
+
+    phone = serializers.CharField()
+    code = serializers.CharField(min_length=OTP_CODE_LENGTH, max_length=OTP_CODE_LENGTH)
+    cargo_id = serializers.PrimaryKeyRelatedField(
+        queryset=CargoCompany.objects.filter(is_active=True),
+        source="cargo",
+    )
+
+    def validate_phone(self, value):
+        return validate_phone(value)
+
+
 class AuthResponseSerializer(serializers.Serializer):
     access = serializers.CharField()
     refresh = serializers.CharField()

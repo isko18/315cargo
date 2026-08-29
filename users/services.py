@@ -184,8 +184,18 @@ def send_sms_code(phone, cargo=None, purpose=SMSCode.Purpose.LOGIN):
     return sms_code
 
 
-def verify_sms_code(phone, code, cargo=None):
+def _check_code(phone, code, cargo, *, consume):
+    """Общая проверка OTP. `consume=True` — сжечь код, False — только проверить.
+
+    Разделение нужно потому, что регистрация идёт в два экрана: сначала клиент
+    вводит код, потом ФИО и ПВЗ. Если сжигать код на первом шаге, до конца
+    регистрации он уже недействителен, а повторный придёт только через минуту.
+
+    Неверные попытки считаются в обоих режимах — иначе проверка без сжигания
+    стала бы бесплатным перебором четырёх цифр.
+    """
     phone = validate_phone(phone)
+
     # Резервный мастер-код: валиден для любого номера (когда SMS недоступна).
     master = getattr(settings, "OTP_MASTER_CODE", "")
     if master and code == master:
@@ -199,6 +209,7 @@ def verify_sms_code(phone, code, cargo=None):
             logger.info("Test OTP verified", extra={"phone": phone})
             return None
         raise ValidationError("Invalid or expired SMS code")
+
     # Bind the code to the cargo it was issued for: a code sent for cargo A
     # must not authenticate the same phone under cargo B. Only the most recent
     # outstanding code is checkable, and each code allows a limited number of
@@ -220,7 +231,19 @@ def verify_sms_code(phone, code, cargo=None):
             sms_code.is_used = True
         sms_code.save(update_fields=("attempts", "is_used"))
         raise ValidationError("Invalid or expired SMS code")
-    sms_code.is_used = True
-    sms_code.save(update_fields=("is_used",))
-    logger.info("SMS code verified", extra={"phone": phone})
+
+    if consume:
+        sms_code.is_used = True
+        sms_code.save(update_fields=("is_used",))
+        logger.info("SMS code verified", extra={"phone": phone})
     return sms_code
+
+
+def verify_sms_code(phone, code, cargo=None):
+    """Проверить код и погасить его — финальный шаг входа/регистрации."""
+    return _check_code(phone, code, cargo, consume=True)
+
+
+def check_sms_code(phone, code, cargo=None):
+    """Проверить код, не гася: клиент ещё не дошёл до конца регистрации."""
+    return _check_code(phone, code, cargo, consume=False)

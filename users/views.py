@@ -26,17 +26,24 @@ from .serializers import (
     PasswordChangeSerializer,
     PasswordLoginSerializer,
     RefreshTokenSerializer,
+    CheckCodeSerializer,
     SendCodeSerializer,
     StaffSerializer,
     UserSerializer,
     VerifyCodeSerializer,
     ProfileQRSerializer,
 )
-from .services import issue_tokens_for_user, send_sms_code, verify_sms_code
+from .services import (
+    check_sms_code,
+    issue_tokens_for_user,
+    send_sms_code,
+    verify_sms_code,
+)
 
 
 @extend_schema_view(
     send_code=extend_schema(tags=["auth"]),
+    check_code=extend_schema(tags=["auth"]),
     verify_code=extend_schema(tags=["auth"]),
     refresh=extend_schema(tags=["auth"]),
     logout=extend_schema(tags=["auth"]),
@@ -84,6 +91,34 @@ class AuthViewSet(GenericViewSet):
                 "SMS_BACKEND=mock: код записан в лог сервера, SMS на телефон не уходит."
             )
         return Response(payload)
+
+    @extend_schema(
+        request=CheckCodeSerializer,
+        responses={200: dict},
+        description=(
+            "Проверяет код, НЕ гася его. Нужен, чтобы показать ошибку ввода сразу "
+            "на экране кода: регистрация идёт в два шага, и verify-code до сбора "
+            "ФИО и ПВЗ вернул бы ошибку, уже потратив код."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=("post",),
+        url_path="check-code",
+        throttle_classes=(AuthRateThrottle,),
+    )
+    def check_code(self, request):
+        serializer = CheckCodeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        check_sms_code(data["phone"], data["code"], cargo=data["cargo"])
+
+        # Тем же ответом говорим, что показывать дальше: анкету или сразу вход.
+        # Иначе приложение узнало бы об этом только из ошибки verify-code.
+        exists = User.objects.filter(
+            phone=data["phone"], is_staff=False, is_superuser=False
+        ).exists()
+        return Response({"valid": True, "is_new_user": not exists})
 
     @extend_schema(request=VerifyCodeSerializer, responses={200: AuthResponseSerializer})
     @action(
