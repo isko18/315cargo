@@ -254,18 +254,7 @@ class FakeMetaResponse:
         return self._payload
 
 
-@override_settings(
-    META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok",
-    META_WA_TEMPLATE="otp_code", META_WA_LANG="ru", META_WA_API_VERSION="v21.0",
-)
-def test_meta_payload_repeats_code_in_copy_button(monkeypatch):
-    """Код обязан идти и в теле, и в кнопке COPY_CODE.
-
-    Без кнопочного компонента Meta отклоняет отправку — а поймать это можно
-    только на живом шаблоне, поэтому проверяем форму запроса здесь.
-    """
-    from users.sms.meta_whatsapp import MetaWhatsAppBackend
-
+def _capture_meta_send(monkeypatch):
     sent = {}
 
     def fake_post(url, **kwargs):
@@ -275,15 +264,45 @@ def test_meta_payload_repeats_code_in_copy_button(monkeypatch):
         return FakeMetaResponse()
 
     monkeypatch.setattr("users.sms.meta_whatsapp.requests.post", fake_post)
-    result = MetaWhatsAppBackend().send_otp("+996 700-11-22-33", "1234", "login", "M1")
+    return sent
+
+
+@override_settings(
+    META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok", META_WA_OTP_BUTTON="url",
+    META_WA_TEMPLATE="otp_code", META_WA_LANG="ru", META_WA_API_VERSION="v21.0",
+)
+def test_meta_url_button_carries_code(monkeypatch):
+    """Боевой шаблон cargo_otp одобрен с кнопкой типа Url.
+
+    На COPY_CODE Meta отвечает «Button at index 0 must be of type Url» (#132018),
+    поэтому форма кнопки обязана совпадать с шаблоном.
+    """
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    sent = _capture_meta_send(monkeypatch)
+    MetaWhatsAppBackend().send_otp("+996 700-11-22-33", "1234", "login", "M1")
 
     body, button = sent["json"]["template"]["components"]
     assert body["parameters"][0]["text"] == "1234"
-    assert button["sub_type"] == "COPY_CODE"
-    assert button["parameters"][0]["coupon_code"] == "1234"
-    # Номер — только цифры, без «+» и разделителей.
+    assert button["sub_type"] == "url"
+    assert button["parameters"][0] == {"type": "text", "text": "1234"}
     assert sent["json"]["to"] == "996700112233"
     assert sent["headers"]["Authorization"] == "Bearer tok"
+
+
+@override_settings(
+    META_WA_PHONE_NUMBER_ID="123", META_WA_TOKEN="tok", META_WA_OTP_BUTTON="copy_code",
+    META_WA_TEMPLATE="otp_code", META_WA_LANG="ru", META_WA_API_VERSION="v21.0",
+)
+def test_meta_copy_code_button_carries_code(monkeypatch):
+    from users.sms.meta_whatsapp import MetaWhatsAppBackend
+
+    sent = _capture_meta_send(monkeypatch)
+    result = MetaWhatsAppBackend().send_otp("+996700112233", "1234", "login", "M1")
+
+    _, button = sent["json"]["template"]["components"]
+    assert button["sub_type"] == "COPY_CODE"
+    assert button["parameters"][0] == {"type": "coupon_code", "coupon_code": "1234"}
     assert "/v21.0/123/messages" in sent["url"]
     assert result["message_id"] == "wamid.XYZ"
 

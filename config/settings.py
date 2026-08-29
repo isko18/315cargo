@@ -253,6 +253,9 @@ META_WA_TOKEN = os.getenv("META_WA_TOKEN", "")
 META_WA_TEMPLATE = os.getenv("META_WA_TEMPLATE", "otp_code")
 META_WA_LANG = os.getenv("META_WA_LANG", "ru")
 META_WA_API_VERSION = os.getenv("META_WA_API_VERSION", "v21.0")
+# Тип кнопки в одобренном шаблоне: url (one-tap) | copy_code. Перепутать
+# нельзя — Meta отклонит отправку с #132018.
+META_WA_OTP_BUTTON = os.getenv("META_WA_OTP_BUTTON", "url")
 META_WA_TIMEOUT = int(os.getenv("META_WA_TIMEOUT", "15"))
 WHATSAPP_TIMEOUT = int(os.getenv("WHATSAPP_TIMEOUT", "15"))
 
