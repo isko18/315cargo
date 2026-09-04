@@ -600,6 +600,21 @@ button.ghost .spinner, button.subtle .spinner { border-color: var(--border-stron
 }
 .invite-dl:hover { background: var(--surface-3); }
 
+/* Строка настройки кода по ПВЗ: название, префикс, предпросмотр, кнопка. */
+.pcode-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 130px minmax(96px, auto) auto;
+  align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.pcode-row .pcode-name { font-size: var(--fs-base); font-weight: 600; }
+.pcode-row .pcode-next { font-size: var(--fs-sm); color: var(--text-muted); text-align: right; }
+@media (max-width: 720px) {
+  .pcode-row { grid-template-columns: 1fr auto; gap: 8px 10px; }
+  .pcode-row .pcode-name { grid-column: 1 / -1; }
+  .pcode-row .pcode-next { text-align: left; }
+}
+
 /* Предпросмотр клиентских кодов: следующий код и пара следующих за ним. */
 .ccode-preview {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;

@@ -4,6 +4,7 @@ import { ApiError, get, patch } from '../api';
 import { IconTariff, IconWeight, IconRevenue, IconStaff, IconCheck } from '../components/Icons';
 import { useI18n } from '../i18n';
 import InviteLink from '../components/InviteLink';
+import { usePickup, type PickupPoint } from '../pickupContext';
 import {
   Alert,
   Button,
@@ -182,6 +183,8 @@ export default function CargoSettingsPage() {
             {codeErr && <Alert variant="error" className="prewrap">{codeErr}</Alert>}
             {codeMsg && <Alert variant="success">{codeMsg}</Alert>}
           </form>
+
+          <PickupCodes />
         </CardBody>
       </Card>
 
@@ -218,6 +221,91 @@ export default function CargoSettingsPage() {
           </form>
         </CardBody>
       </Card>
+    </div>
+  );
+}
+
+
+/**
+ * Префиксы кодов по пунктам выдачи — здесь же, где префикс карго: вопрос
+ * «какой код получит клиент» решается в одном месте, а не на двух страницах.
+ *
+ * Пустой префикс означает, что ПВЗ пользуется нумерацией карго. Это и есть
+ * состояние всех ПВЗ до первой настройки, поэтому оно показано явно, а не
+ * прочерком.
+ */
+function PickupCodes() {
+  const { t } = useI18n();
+  const { points, reload } = usePickup();
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [err, setErr] = useState('');
+  const [okId, setOkId] = useState<number | null>(null);
+
+  if (points.length === 0) return null;
+
+  const valueOf = (p: PickupPoint) => draft[p.id] ?? p.client_code_prefix ?? '';
+
+  async function save(p: PickupPoint) {
+    const next = valueOf(p).trim();
+    setErr('');
+    setOkId(null);
+    setBusyId(p.id);
+    try {
+      await patch(`/api/manage/pickup-points/${p.id}/`, { client_code_prefix: next });
+      await reload();
+      setDraft((d) => {
+        const { [p.id]: _drop, ...rest } = d;
+        return rest;
+      });
+      setOkId(p.id);
+    } catch (e) {
+      setErr(formError(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-lg">
+      <div className="section-title" style={{ marginTop: 0 }}>{t('ccode.byPickup')}</div>
+      <p className="helper" style={{ marginTop: -6 }}>{t('ccode.byPickupHint')}</p>
+
+      <div className="stack gap-sm mt-md">
+        {points.map((p) => {
+          const value = valueOf(p);
+          const dirty = value.trim() !== (p.client_code_prefix ?? '');
+          return (
+            <div key={p.id} className="pcode-row">
+              <div className="pcode-name truncate">{p.title}</div>
+              <Input
+                value={value}
+                onChange={(e) => setDraft((d) => ({ ...d, [p.id]: e.target.value.trim() }))}
+                placeholder={t('pickup.codePrefixPlaceholder')}
+                aria-label={`${t('pickup.codePrefix')} — ${p.title}`}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={10}
+              />
+              <span className="pcode-next mono">
+                {p.client_code_prefix ? p.client_code_next : t('pickup.codeFromCargo')}
+              </span>
+              <Button
+                variant="subtle"
+                size="sm"
+                onClick={() => save(p)}
+                loading={busyId === p.id}
+                disabled={!dirty}
+                icon={okId === p.id && !dirty ? <IconCheck size={15} /> : undefined}
+              >
+                {okId === p.id && !dirty ? t('ccode.savedShort') : t('common.save')}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {err && <Alert variant="error" className="prewrap">{err}</Alert>}
     </div>
   );
 }
