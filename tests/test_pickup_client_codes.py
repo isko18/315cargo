@@ -130,3 +130,33 @@ def test_pickup_prefix_can_be_cleared(cargo_admin_client, pickup_point):
     )
     assert response.status_code == 200
     assert response.data["client_code_prefix"] == ""
+
+
+@pytest.mark.django_db
+def test_registration_uses_pickup_prefix(api_client):
+    """Регрессия: код выдаётся сигналом на создании пользователя.
+
+    ПВЗ проставлялся отдельным save() после создания, поэтому в момент выдачи
+    кода его ещё не было — новый клиент ПВЗ со своим префиксом получал код
+    карго. Ловится только через полный путь регистрации.
+    """
+    from users.models import SMSCode
+
+    cargo = CargoCompanyFactory(client_code_prefix="ISI")
+    manas = PickupPointFactory(cargo=cargo, client_code_prefix="MNS")
+    SMSCode.objects.create(
+        phone="+996700424242", cargo=cargo, code="1234",
+        purpose=SMSCode.Purpose.REGISTER, expires_at=SMSCode.default_expires_at(),
+    )
+
+    response = api_client.post(
+        "/api/auth/verify-code/",
+        {
+            "phone": "+996700424242", "code": "1234", "cargo_id": cargo.id,
+            "pickup_point_id": manas.id, "full_name": "Новый Клиент",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["user"]["client_code"] == "MNS0001"

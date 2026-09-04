@@ -148,7 +148,15 @@ class AuthViewSet(GenericViewSet):
             )
 
         if is_new_user:
-            user = User(phone=data["phone"], cargo=data["cargo"])
+            # ПВЗ и имя проставляем ДО первого save: клиентский код выдаёт
+            # сигнал на создании пользователя, и без ПВЗ он возьмёт префикс
+            # карго — у ПВЗ со своей нумерацией код оказался бы чужим.
+            user = User(
+                phone=data["phone"],
+                cargo=data["cargo"],
+                pickup_point=data.get("pickup_point"),
+                full_name=data.get("full_name") or "",
+            )
             user.set_unusable_password()
             try:
                 user.save()
