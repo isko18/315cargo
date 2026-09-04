@@ -36,13 +36,17 @@ def validate_phone(phone):
     return normalized
 
 
-def generate_client_code(cargo):
-    """Следующий клиентский код карго: префикс карго + порядковый номер.
+def generate_client_code(cargo, pickup_point=None):
+    """Следующий клиентский код: префикс + порядковый номер.
 
-    Нумерация сквозная и по возрастанию внутри карго («X0001», «X0002», …).
-    Счётчик живёт на карго и берётся под блокировкой строки, чтобы две
-    параллельные регистрации не получили один номер. Занятые номера (напр.
-    после ручной правки кода в админке) пропускаем.
+    Источник префикса и счётчика — ПВЗ, если у него задан свой префикс, иначе
+    карго. Так у каждого ПВЗ может быть своя нумерация («ISIM0001» в одном,
+    «ISIO0001» в другом), а ПВЗ без префикса продолжают общую нумерацию карго
+    — уже выданные коды при этом не меняются.
+
+    Счётчик берётся под блокировкой строки, чтобы две параллельные регистрации
+    не получили один номер. Занятые номера (напр. после ручной правки кода в
+    админке) пропускаем.
 
     Без карго (супер-владелец, служебные пользователи) — прежняя случайная
     схема: сквозного счётчика там нет.
@@ -58,12 +62,33 @@ def generate_client_code(cargo):
                 return code
 
     cargo_id = getattr(cargo, "pk", cargo)
+    pickup_id = getattr(pickup_point, "pk", pickup_point)
+
+    # Уникальность кода проверяется в пределах карго: ПВЗ разных карго могут
+    # иметь одинаковую нумерацию, их разводит префикс.
+    def taken(code):
+        return User.objects.filter(cargo_id=cargo_id, client_code=code).exists()
+
+    if pickup_id is not None:
+        from pickup_points.models import PickupPoint
+
+        with transaction.atomic():
+            point = PickupPoint.objects.select_for_update().get(pk=pickup_id)
+            if point.has_own_client_codes:
+                while True:
+                    point.client_code_seq += 1
+                    code = point.format_client_code(point.client_code_seq)
+                    if not taken(code):
+                        break
+                point.save(update_fields=("client_code_seq",))
+                return code
+
     with transaction.atomic():
         row = CargoCompany.objects.select_for_update().get(pk=cargo_id)
         while True:
             row.client_code_seq += 1
             code = row.format_client_code(row.client_code_seq)
-            if not User.objects.filter(cargo_id=cargo_id, client_code=code).exists():
+            if not taken(code):
                 break
         row.save(update_fields=("client_code_seq",))
     return code

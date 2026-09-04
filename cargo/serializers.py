@@ -32,24 +32,54 @@ CLIENT_CODE_PREFIX_MAX = 10
 CLIENT_CODE_PREFIX_RE = re.compile(r"^\S{1,%d}$" % CLIENT_CODE_PREFIX_MAX)
 
 
-def normalize_client_code_prefix(value, instance=None):
-    """Префикс клиентского кода: формат + уникальность на карго.
-
-    Уникальность обязательна: по клиентскому коду коробку опознают на складе
-    в Китае, где лежат посылки всех карго сразу.
-    """
-    prefix = (value or "").strip()
-    if not prefix:
-        raise serializers.ValidationError("Префикс не может быть пустым")
+def _assert_prefix_format(prefix):
     if not CLIENT_CODE_PREFIX_RE.match(prefix):
         raise serializers.ValidationError(
             f"Префикс: 1–{CLIENT_CODE_PREFIX_MAX} символов без пробелов"
         )
-    qs = CargoCompany.objects.filter(client_code_prefix__iexact=prefix)
-    if instance is not None and instance.pk:
-        qs = qs.exclude(pk=instance.pk)
-    if qs.exists():
-        raise serializers.ValidationError("Этот префикс уже занят другим карго")
+
+
+def _assert_prefix_free(prefix, *, cargo_instance=None, pickup_instance=None):
+    """Префикс не должен совпадать ни с карго, ни с ПВЗ.
+
+    Проверять обе таблицы обязательно: по клиентскому коду коробку опознают на
+    складе в Китае, где лежат посылки всех карго сразу. Совпадение префикса
+    карго и ПВЗ дало бы там два разных клиента с одинаковым кодом.
+    """
+    cargos = CargoCompany.objects.filter(client_code_prefix__iexact=prefix)
+    if cargo_instance is not None and cargo_instance.pk:
+        cargos = cargos.exclude(pk=cargo_instance.pk)
+    if cargos.exists():
+        raise serializers.ValidationError("Этот префикс уже занят карго")
+
+    points = PickupPoint.objects.filter(client_code_prefix__iexact=prefix)
+    if pickup_instance is not None and pickup_instance.pk:
+        points = points.exclude(pk=pickup_instance.pk)
+    if points.exists():
+        raise serializers.ValidationError("Этот префикс уже занят пунктом выдачи")
+
+
+def normalize_client_code_prefix(value, instance=None):
+    """Префикс клиентского кода карго: формат + уникальность."""
+    prefix = (value or "").strip()
+    if not prefix:
+        raise serializers.ValidationError("Префикс не может быть пустым")
+    _assert_prefix_format(prefix)
+    _assert_prefix_free(prefix, cargo_instance=instance)
+    return prefix
+
+
+def normalize_pickup_code_prefix(value, instance=None):
+    """Префикс ПВЗ: тот же формат, но пустой разрешён.
+
+    Пусто — у ПВЗ нет своей нумерации, коды выдаёт карго. Так ведут себя все
+    существующие ПВЗ, пока префикс не задали.
+    """
+    prefix = (value or "").strip()
+    if not prefix:
+        return ""
+    _assert_prefix_format(prefix)
+    _assert_prefix_free(prefix, pickup_instance=instance)
     return prefix
 
 

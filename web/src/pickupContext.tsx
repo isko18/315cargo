@@ -7,6 +7,8 @@ export type PickupPoint = {
   address: string;
   phone: string;
   work_schedule: string;
+  client_code_prefix: string;
+  client_code_next: string;
   is_active: boolean;
 };
 

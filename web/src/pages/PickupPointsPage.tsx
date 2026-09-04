@@ -19,7 +19,7 @@ import {
   PageHeader,
 } from '../ui';
 
-const EMPTY = { title: '', address: '', phone: '', work_schedule: '' };
+const EMPTY = { title: '', address: '', phone: '', work_schedule: '', client_code_prefix: '' };
 
 export default function PickupPointsPage() {
   const { t } = useI18n();
@@ -45,7 +45,13 @@ export default function PickupPointsPage() {
 
   function startEdit(p: PickupPoint) {
     setEditId(p.id);
-    setForm({ title: p.title, address: p.address, phone: p.phone, work_schedule: p.work_schedule });
+    setForm({
+      title: p.title,
+      address: p.address,
+      phone: p.phone,
+      work_schedule: p.work_schedule,
+      client_code_prefix: p.client_code_prefix ?? '',
+    });
     setMsg('');
     setErr('');
     setOpen(true);
@@ -109,7 +115,19 @@ export default function PickupPointsPage() {
     },
     { key: 'address', header: t('pickup.address'), render: (p) => <span style={{ fontSize: 13 }}>{p.address || '—'}</span> },
     { key: 'phone', header: t('pickup.phone'), render: (p) => <span className="mono" style={{ fontSize: 13 }}>{p.phone || '—'}</span> },
-    { key: 'schedule', header: t('pickup.scheduleCol'), render: (p) => <span style={{ fontSize: 13 }}>{p.work_schedule || '—'}</span> },
+    { key: 'schedule', header: t('pickup.scheduleCol'), mobile: 'hide', render: (p) => <span style={{ fontSize: 13 }}>{p.work_schedule || '—'}</span> },
+    {
+      key: 'code',
+      header: t('pickup.codeCol'),
+      render: (p) =>
+        p.client_code_prefix ? (
+          // Показываем следующий код, а не голый префикс: так сразу видно
+          // формат, который получит клиент этого ПВЗ.
+          <span className="mono strong" style={{ fontSize: 13 }}>{p.client_code_next}</span>
+        ) : (
+          <span className="muted" style={{ fontSize: 13 }}>{t('pickup.codeFromCargo')}</span>
+        ),
+    },
     {
       key: 'status',
       header: t('common.status'),
@@ -215,6 +233,20 @@ export default function PickupPointsPage() {
             </Field>
             <Field label={t('pickup.schedule')} className="mt-md">
               <Input value={form.work_schedule} onChange={(e) => set('work_schedule', e.target.value)} placeholder="Пн-Сб 09:00-19:00" />
+            </Field>
+            <Field
+              label={t('pickup.codePrefix')}
+              helper={t('pickup.codePrefixHint')}
+              className="mt-md"
+            >
+              <Input
+                value={form.client_code_prefix}
+                onChange={(e) => set('client_code_prefix', e.target.value.trim())}
+                placeholder={t('pickup.codePrefixPlaceholder')}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={10}
+              />
             </Field>
             {err && <Alert variant="error">{err}</Alert>}
           </form>

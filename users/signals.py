@@ -28,7 +28,7 @@ def create_client_code_and_qr(sender, instance, created, **kwargs):
 
     changed_fields = []
     if not instance.client_code:
-        instance.client_code = generate_client_code(instance.cargo)
+        instance.client_code = generate_client_code(instance.cargo, instance.pickup_point)
         changed_fields.append("client_code")
     if instance.client_code and not instance.qr_code_image:
         generate_qr_code(instance)
