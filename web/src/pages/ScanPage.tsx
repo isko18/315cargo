@@ -51,6 +51,19 @@ type Parcel = {
 
 type Entry = { result: string; parcel: Parcel };
 
+/**
+ * Строка сессии приёмки. Скан попадает в список сразу, до ответа сервера:
+ * оператор сканирует коробки подряд, и ждать сеть на каждой нельзя.
+ */
+type Row =
+  | { id: string; state: 'pending'; track: string }
+  | { id: string; state: 'error'; track: string; message: string }
+  | { id: string; state: 'done'; track: string; entry: Entry };
+
+type Job = { id: string; track: string; weight: string; cargo: string; pickup: number | null };
+
+let rowSeq = 0;
+
 export default function ScanPage() {
   const { t } = useI18n();
   const toast = useToast();
@@ -63,40 +76,88 @@ export default function ScanPage() {
   const [track, setTrack] = useState('');
   const [weight, setWeight] = useState('');
   const [cargo, setCargo] = useState('');
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [log, setLog] = useState<Entry[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [queued, setQueued] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Очередь в ref: воркер читает её синхронно, лишние перерисовки на каждый
+  // скан только тормозили бы ввод.
+  const queueRef = useRef<Job[]>([]);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  async function scan(codeArg?: string) {
-    const tn = (codeArg ?? track).trim();
-    if (!tn || busy) return;
-    setErr('');
-    setBusy(true);
+  /** Отправляет очередь по одной, сохраняя порядок сканирования. */
+  async function drain() {
+    if (runningRef.current) return;
+    runningRef.current = true;
     try {
-      const body: Record<string, unknown> = { track_number: tn, status: RECEIVE_STATUS };
-      if (weight.trim()) body.weight = weight.trim();
-      if (cargo.trim()) body.cargo = Number(cargo.trim());
-      // Активный ПВЗ (переключатель) — бэкенд запишет его адрес при статусе «В ПВЗ».
-      if (activeId) body.pickup_point = activeId;
-      const r = await post<Entry>('/api/parcels/scan/', body);
-      setLog((l) => [r, ...l]);
-      setTrack('');
-      setWeight('');
-      // Оператор в этот момент смотрит на сканер, а не на экран — сообщаем тостом.
-      toast.success(t('toast.scanOk'), `${r.parcel.track_number} · ${t(`result.${r.result}`)}`);
-    } catch (e) {
-      const msg = (e as ApiError).message;
-      setErr(msg);
-      toast.error(t('toast.error'), msg);
+      while (queueRef.current.length > 0) {
+        const job = queueRef.current[0];
+        try {
+          const body: Record<string, unknown> = { track_number: job.track, status: RECEIVE_STATUS };
+          if (job.weight) body.weight = job.weight;
+          if (job.cargo) body.cargo = Number(job.cargo);
+          // Активный ПВЗ — бэкенд запишет его адрес при статусе «В ПВЗ».
+          if (job.pickup) body.pickup_point = job.pickup;
+          const entry = await post<Entry>('/api/parcels/scan/', body);
+          setRows((rs) =>
+            rs.map((r) => (r.id === job.id ? { id: job.id, state: 'done', track: job.track, entry } : r)),
+          );
+        } catch (e) {
+          const msg = (e as ApiError).message;
+          setRows((rs) =>
+            rs.map((r) => (r.id === job.id ? { id: job.id, state: 'error', track: job.track, message: msg } : r)),
+          );
+          setErr(msg);
+          // Тост только на ошибку: успех виден строкой, а при быстром
+          // сканировании поток тостов перекрыл бы саму таблицу.
+          toast.error(t('toast.error'), `${job.track} · ${msg}`);
+        }
+        queueRef.current.shift();
+        setQueued(queueRef.current.length);
+      }
     } finally {
-      setBusy(false);
-      inputRef.current?.focus();
+      runningRef.current = false;
     }
+  }
+
+  /** Скан не ждёт сеть: строка появляется сразу, отправка идёт фоном. */
+  function scan(codeArg?: string) {
+    const tn = (codeArg ?? track).trim();
+    if (!tn) return;
+    // Сканер иногда срабатывает дважды на одной коробке — дубль не плодим.
+    if (queueRef.current.some((j) => j.track === tn)) {
+      setTrack('');
+      return;
+    }
+    setErr('');
+    const id = `r${++rowSeq}`;
+    setRows((rs) => [{ id, state: 'pending', track: tn }, ...rs]);
+    // Вес и карго фиксируем на момент скана: оператор успеет их поменять,
+    // пока очередь разгребается.
+    queueRef.current.push({
+      id,
+      track: tn,
+      weight: weight.trim(),
+      cargo: cargo.trim(),
+      pickup: activeId,
+    });
+    setQueued(queueRef.current.length);
+    setTrack('');
+    setWeight('');
+    inputRef.current?.focus();
+    void drain();
+  }
+
+  /** Повторная отправка упавшей строки — без пересканирования коробки. */
+  function retry(id: string, tn: string) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { id, state: 'pending', track: tn } : r)));
+    queueRef.current.push({ id, track: tn, weight: '', cargo: cargo.trim(), pickup: activeId });
+    setQueued(queueRef.current.length);
+    void drain();
   }
 
   // Глобальный перехват штрих-сканера — работает без клика в поле.
@@ -105,15 +166,24 @@ export default function ScanPage() {
     scan(code);
   });
 
+  /** Заменяет посылку в подтверждённой строке — общее для веса и привязки. */
+  function replaceParcel(parcelId: number, parcel: Parcel) {
+    setRows((rs) =>
+      rs.map((r) =>
+        r.state === 'done' && r.entry.parcel.id === parcelId
+          ? { ...r, entry: { ...r.entry, parcel } }
+          : r,
+      ),
+    );
+  }
+
   async function assign(entryId: number, clientCode: string) {
     const cc = clientCode.trim();
     if (!cc) return;
-    const entry = log.find((e) => e.parcel.id === entryId);
-    if (!entry) return;
     setErr('');
     try {
       const updated = await post<Parcel>(`/api/parcels/${entryId}/assign/`, { client_code: cc });
-      setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
+      replaceParcel(entryId, updated);
       toast.success(t('toast.assignOk'), `${updated.track_number} → ${cc}`);
     } catch (e) {
       const msg = (e as ApiError).message;
@@ -129,7 +199,7 @@ export default function ScanPage() {
       const updated = await post<Parcel>(`/api/parcels/${entryId}/weight/`, {
         weight: w === '' ? null : w,
       });
-      setLog((l) => l.map((e) => (e.parcel.id === entryId ? { ...e, parcel: updated } : e)));
+      replaceParcel(entryId, updated);
     } catch (e) {
       const msg = (e as ApiError).message;
       setErr(msg);
@@ -138,47 +208,89 @@ export default function ScanPage() {
     }
   }
 
-  const withWeight = log.filter((e) => e.parcel.weight).length;
+  const done = rows.filter((r): r is Extract<Row, { state: 'done' }> => r.state === 'done');
+  const withWeight = done.filter((r) => r.entry.parcel.weight).length;
+  const failed = rows.filter((r) => r.state === 'error').length;
 
-  const columns: Column<Entry>[] = [
-    { key: 'track', header: t('common.track'), render: (e) => <span className="mono strong">{e.parcel.track_number}</span> },
+  const columns: Column<Row>[] = [
+    {
+      key: 'track',
+      header: t('common.track'),
+      mobile: 'title',
+      render: (r) => (
+        <span className="mono strong" translate="no">
+          {r.state === 'done' ? r.entry.parcel.track_number : r.track}
+        </span>
+      ),
+    },
     {
       key: 'result',
       header: t('common.result'),
-      render: (e) => <Badge variant={RESULT_TONE[e.result] ?? 'gray'}>{t(`result.${e.result}`)}</Badge>,
+      render: (r) =>
+        r.state === 'pending' ? (
+          <Badge variant="plain">{t('china.sending')}</Badge>
+        ) : r.state === 'error' ? (
+          <Badge variant="red">{t('china.failed')}</Badge>
+        ) : (
+          <Badge variant={RESULT_TONE[r.entry.result] ?? 'gray'}>{t(`result.${r.entry.result}`)}</Badge>
+        ),
     },
     {
       key: 'status',
       header: t('common.status'),
-      render: (e) => (
-        <Badge variant={statusMeta(e.parcel.status).tone} dot>
-          {t(`status.${e.parcel.status}`)}
-        </Badge>
-      ),
+      render: (r) =>
+        r.state === 'done' ? (
+          <Badge variant={statusMeta(r.entry.parcel.status).tone} dot>
+            {t(`status.${r.entry.parcel.status}`)}
+          </Badge>
+        ) : r.state === 'error' ? (
+          <span className="muted" style={{ fontSize: 13 }}>{r.message}</span>
+        ) : (
+          <span className="muted" style={{ fontSize: 13 }}>—</span>
+        ),
     },
     {
       key: 'weight',
       header: t('op.weightKg'),
       align: 'right',
-      render: (e) => (
-        <WeightInline value={e.parcel.weight} onSave={(w) => saveWeight(e.parcel.id, w)} />
-      ),
+      // Вес правится только у подтверждённой посылки: у неё есть id на сервере.
+      render: (r) =>
+        r.state === 'done' ? (
+          <WeightInline value={r.entry.parcel.weight} onSave={(w) => saveWeight(r.entry.parcel.id, w)} />
+        ) : (
+          <span className="muted">—</span>
+        ),
     },
     {
       key: 'price',
       header: t('op.price'),
       align: 'right',
-      render: (e) => <span className="num">{money(e.parcel.delivery_price)}</span>,
+      render: (r) =>
+        r.state === 'done' ? (
+          <span className="num">{money(r.entry.parcel.delivery_price)}</span>
+        ) : (
+          <span className="muted">—</span>
+        ),
     },
     {
       key: 'client',
       header: t('common.client'),
-      render: (e) =>
-        e.parcel.user ? (
-          <Badge variant="ok" className="mono">{e.parcel.client_code}</Badge>
+      render: (r) => {
+        if (r.state === 'error') {
+          // Повтор прямо из строки: искать коробку и сканировать заново не нужно.
+          return (
+            <Button variant="subtle" size="sm" onClick={() => retry(r.id, r.track)}>
+              {t('china.retry')}
+            </Button>
+          );
+        }
+        if (r.state !== 'done') return <span className="muted">—</span>;
+        return r.entry.parcel.user ? (
+          <Badge variant="ok" className="mono">{r.entry.parcel.client_code}</Badge>
         ) : (
-          <AssignInline onAssign={(cc) => assign(e.parcel.id, cc)} t={t} />
-        ),
+          <AssignInline onAssign={(cc) => assign(r.entry.parcel.id, cc)} t={t} />
+        );
+      },
     },
   ];
 
@@ -196,7 +308,7 @@ export default function ScanPage() {
       </div>
 
       {view === 'history' ? (
-        <OperationHistory type="receive" reloadSignal={log.length} />
+        <OperationHistory type="receive" reloadSignal={done.length} />
       ) : (
       <>
       <Card>
@@ -241,7 +353,7 @@ export default function ScanPage() {
                 placeholder={t('scan.weightPlaceholder')}
               />
             </Field>
-            <Button onClick={() => scan()} loading={busy} disabled={!track.trim()} icon={<IconCheck size={18} />}>
+            <Button onClick={() => scan()} disabled={!track.trim()} icon={<IconCheck size={18} />}>
               {t('scan.accept')}
             </Button>
           </div>
@@ -261,15 +373,18 @@ export default function ScanPage() {
           title={t('scan.session')}
           actions={
             <div className="cluster gap-sm">
-              <Badge variant="plain">{log.length} {t('wh.pcs')}</Badge>
+              <Badge variant="plain">{rows.length} {t('wh.pcs')}</Badge>
+              {queued > 0 && <Badge variant="blue" dot>{queued} {t('china.inQueue')}</Badge>}
+              {failed > 0 && <Badge variant="red">{failed} {t('china.failed')}</Badge>}
               {withWeight > 0 && <Badge variant="ok">{withWeight} {t('scan.withWeight')}</Badge>}
             </div>
           }
         />
         <DataTable
           columns={columns}
-          rows={log}
-          getRowKey={(e) => e.parcel.id}
+          rows={rows}
+          getRowKey={(r) => r.id}
+          rowClassName={(r) => (r.state === 'pending' ? 'row-dim' : undefined)}
           empty={<EmptyState icon={<IconBox size={26} />} title={t('scan.emptyTitle')} description={t('scan.emptyDesc')} />}
         />
       </Card>
