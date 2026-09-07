@@ -127,6 +127,10 @@ const DICT: Record<Lang, Record<string, string>> = {
     'china.chipOrder': 'из заказа',
     'china.chipManual': 'по коду',
     'china.chipUnclaimed': 'ничьи',
+    'china.sending': 'отправляется',
+    'china.failed': 'не прошло',
+    'china.inQueue': 'в очереди',
+    'china.retry': 'Повторить',
 
     'result.updated': 'обновлён',
     'result.unchanged': 'без изменений',
@@ -742,6 +746,10 @@ const DICT: Record<Lang, Record<string, string>> = {
     'china.chipOrder': '按订单',
     'china.chipManual': '按客户码',
     'china.chipUnclaimed': '无主',
+    'china.sending': '发送中',
+    'china.failed': '未成功',
+    'china.inQueue': '队列中',
+    'china.retry': '重试',
 
     'result.updated': '已更新',
     'result.unchanged': '无变化',

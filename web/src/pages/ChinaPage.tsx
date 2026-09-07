@@ -44,44 +44,98 @@ type Parcel = {
 };
 type Entry = { result: string; parcel: Parcel };
 
+/**
+ * Строка сессии. Скан попадает в список сразу, ещё до ответа сервера:
+ * оператор на складе сканирует подряд, и ждать сеть на каждой коробке нельзя.
+ */
+type Row =
+  | { id: string; state: 'pending'; track: string }
+  | { id: string; state: 'error'; track: string; message: string }
+  | { id: string; state: 'done'; track: string; entry: Entry };
+
+type Job = { id: string; track: string; clientCode: string };
+
+let rowSeq = 0;
+
 export default function ChinaPage() {
   const { t } = useI18n();
   const toast = useToast();
   const [tab, setTab] = useState<'china' | 'history'>('china');
   const [track, setTrack] = useState('');
   const [clientCode, setClientCode] = useState('');
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const [log, setLog] = useState<Entry[]>([]);
-  const [flashId, setFlashId] = useState<number | null>(null);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [queued, setQueued] = useState(0);
+  const [flashId, setFlashId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Очередь в ref, а не в state: воркер читает её синхронно, и лишние
+  // перерисовки на каждый скан только тормозили бы ввод.
+  const queueRef = useRef<Job[]>([]);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  async function scan(codeArg?: string) {
-    const tn = (codeArg ?? track).trim();
-    if (!tn || busy) return;
-    setErr('');
-    setBusy(true);
+  /** Отправляет очередь по одной, сохраняя порядок сканирования. */
+  async function drain() {
+    if (runningRef.current) return;
+    runningRef.current = true;
     try {
-      const body: Record<string, unknown> = { track_number: tn, status: CHINA_STATUS };
-      if (clientCode.trim()) body.client_code = clientCode.trim();
-      const r = await post<Entry>('/api/parcels/scan/', body);
-      setLog((l) => [r, ...l]);
-      setTrack('');
-      setFlashId(r.parcel.id);
-      window.setTimeout(() => setFlashId((cur) => (cur === r.parcel.id ? null : cur)), 1400);
-      toast.success(t('toast.scanOk'), `${r.parcel.track_number} · ${t(`result.${r.result}`)}`);
-    } catch (e) {
-      const message = (e as ApiError).message;
-      setErr(message);
-      toast.error(t('toast.error'), message);
+      while (queueRef.current.length > 0) {
+        const job = queueRef.current[0];
+        try {
+          const body: Record<string, unknown> = { track_number: job.track, status: CHINA_STATUS };
+          if (job.clientCode) body.client_code = job.clientCode;
+          const entry = await post<Entry>('/api/parcels/scan/', body);
+          setRows((rs) =>
+            rs.map((r) => (r.id === job.id ? { id: job.id, state: 'done', track: job.track, entry } : r)),
+          );
+          setFlashId(job.id);
+          window.setTimeout(() => setFlashId((cur) => (cur === job.id ? null : cur)), 1400);
+        } catch (e) {
+          const message = (e as ApiError).message;
+          setRows((rs) =>
+            rs.map((r) => (r.id === job.id ? { id: job.id, state: 'error', track: job.track, message } : r)),
+          );
+          setErr(message);
+          // Тост только на ошибку: на успехе строка уже всё показала, а при
+          // быстром сканировании поток тостов перекрыл бы саму таблицу.
+          toast.error(t('toast.error'), `${job.track} · ${message}`);
+        }
+        queueRef.current.shift();
+        setQueued(queueRef.current.length);
+      }
     } finally {
-      setBusy(false);
-      inputRef.current?.focus();
+      runningRef.current = false;
     }
+  }
+
+  /** Скан не ждёт сеть: строка появляется сразу, отправка идёт фоном. */
+  function scan(codeArg?: string) {
+    const tn = (codeArg ?? track).trim();
+    if (!tn) return;
+    // Сканер иногда дублирует срабатывание — тот же трек в очереди не плодим.
+    if (queueRef.current.some((j) => j.track === tn)) {
+      setTrack('');
+      return;
+    }
+    setErr('');
+    const id = `r${++rowSeq}`;
+    setRows((rs) => [{ id, state: 'pending', track: tn }, ...rs]);
+    queueRef.current.push({ id, track: tn, clientCode: clientCode.trim() });
+    setQueued(queueRef.current.length);
+    setTrack('');
+    inputRef.current?.focus();
+    void drain();
+  }
+
+  /** Повторная отправка упавшей строки — без пересканирования коробки. */
+  function retry(id: string, tn: string) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { id, state: 'pending', track: tn } : r)));
+    queueRef.current.push({ id, track: tn, clientCode: clientCode.trim() });
+    setQueued(queueRef.current.length);
+    void drain();
   }
 
   // Глобальный перехват штрих-сканера — код подхватывается без клика в поле.
@@ -90,38 +144,77 @@ export default function ChinaPage() {
     scan(code);
   });
 
-  // Сводка сессии по типу приёмки.
+  // Сводка сессии по типу приёмки — только по подтверждённым сервером.
+  const done = rows.filter((r): r is Extract<Row, { state: 'done' }> => r.state === 'done');
   const counts = {
-    order: log.filter((e) => e.result === 'created_from_order').length,
-    manual: log.filter((e) => e.result === 'created_manual').length,
-    unclaimed: log.filter((e) => e.result === 'created_pending').length,
+    order: done.filter((r) => r.entry.result === 'created_from_order').length,
+    manual: done.filter((r) => r.entry.result === 'created_manual').length,
+    unclaimed: done.filter((r) => r.entry.result === 'created_pending').length,
+    failed: rows.filter((r) => r.state === 'error').length,
   };
 
-  const columns: Column<Entry>[] = [
-    { key: 'track', header: t('common.track'), render: (e) => <span className="mono strong">{e.parcel.track_number}</span> },
+  const columns: Column<Row>[] = [
+    {
+      key: 'track',
+      header: t('common.track'),
+      mobile: 'title',
+      render: (r) => (
+        <span className="mono strong" translate="no">
+          {r.state === 'done' ? r.entry.parcel.track_number : r.track}
+        </span>
+      ),
+    },
     {
       key: 'result',
       header: t('common.result'),
-      render: (e) => <Badge variant={RESULT_TONE[e.result] ?? 'gray'}>{t(`result.${e.result}`)}</Badge>,
+      render: (r) =>
+        r.state === 'pending' ? (
+          <Badge variant="plain">{t('china.sending')}</Badge>
+        ) : r.state === 'error' ? (
+          <Badge variant="red">{t('china.failed')}</Badge>
+        ) : (
+          <Badge variant={RESULT_TONE[r.entry.result] ?? 'gray'}>{t(`result.${r.entry.result}`)}</Badge>
+        ),
     },
     {
       key: 'status',
       header: t('common.status'),
-      render: (e) => (
-        <Badge variant={statusMeta(e.parcel.status).tone} dot>
-          {t(`status.${e.parcel.status}`)}
-        </Badge>
-      ),
+      render: (r) =>
+        r.state === 'done' ? (
+          <Badge variant={statusMeta(r.entry.parcel.status).tone} dot>
+            {t(`status.${r.entry.parcel.status}`)}
+          </Badge>
+        ) : r.state === 'error' ? (
+          <span className="muted" style={{ fontSize: 13 }}>{r.message}</span>
+        ) : (
+          <span className="muted" style={{ fontSize: 13 }}>—</span>
+        ),
     },
     {
       key: 'client',
       header: t('common.client'),
-      render: (e) =>
-        e.parcel.user ? (
-          <Badge variant="ok" className="mono">{e.parcel.client_code}</Badge>
+      render: (r) => {
+        if (r.state !== 'done') return <span className="muted">—</span>;
+        return r.entry.parcel.user ? (
+          <Badge variant="ok" className="mono">{r.entry.parcel.client_code}</Badge>
         ) : (
           <Badge variant="warn">{t('common.noClient')}</Badge>
-        ),
+        );
+      },
+    },
+    {
+      key: 'retry',
+      header: '',
+      align: 'right',
+      cardLabel: '',
+      render: (r) =>
+        r.state === 'error' ? (
+          // Повтор прямо из строки: иначе оператору пришлось бы искать коробку
+          // и сканировать её заново.
+          <Button variant="subtle" size="sm" onClick={() => retry(r.id, r.track)}>
+            {t('china.retry')}
+          </Button>
+        ) : null,
     },
   ];
 
@@ -142,7 +235,7 @@ export default function ChinaPage() {
       </div>
 
       {tab === 'history' ? (
-        <OperationHistory type="china" reloadSignal={log.length} />
+        <OperationHistory type="china" reloadSignal={done.length} />
       ) : (
       <>
       <Card>
@@ -193,7 +286,7 @@ export default function ChinaPage() {
                 }
               />
             </Field>
-            <Button onClick={() => scan()} loading={busy} disabled={!track.trim()} icon={<IconCheck size={18} />}>
+            <Button onClick={() => scan()} disabled={!track.trim()} icon={<IconCheck size={18} />}>
               {t('china.accept')}
             </Button>
           </div>
@@ -211,12 +304,19 @@ export default function ChinaPage() {
           title={t('china.sessionTitle')}
           actions={
             <div className="cluster gap-sm">
-              <Badge variant="plain">{log.length} {t('common.pcs')}</Badge>
+              <Badge variant="plain">{rows.length} {t('common.pcs')}</Badge>
+              {queued > 0 && <Badge variant="blue" dot>{queued} {t('china.inQueue')}</Badge>}
+              {counts.failed > 0 && <Badge variant="red">{counts.failed} {t('china.failed')}</Badge>}
               {counts.order > 0 && <Badge variant="green">{counts.order} {t('china.chipOrder')}</Badge>}
               {counts.manual > 0 && <Badge variant="teal">{counts.manual} {t('china.chipManual')}</Badge>}
               {counts.unclaimed > 0 && <Badge variant="amber">{counts.unclaimed} {t('china.chipUnclaimed')}</Badge>}
-              {log.length > 0 && (
-                <Button variant="subtle" size="sm" onClick={() => { setLog([]); setFlashId(null); }}>
+              {rows.length > 0 && (
+                <Button
+                  variant="subtle"
+                  size="sm"
+                  disabled={queued > 0}
+                  onClick={() => { setRows([]); setFlashId(null); }}
+                >
                   {t('china.clear')}
                 </Button>
               )}
@@ -225,9 +325,13 @@ export default function ChinaPage() {
         />
         <DataTable
           columns={columns}
-          rows={log}
-          getRowKey={(e) => e.parcel.id}
-          rowClassName={(e) => (e.parcel.id === flashId ? 'row-flash' : undefined)}
+          rows={rows}
+          getRowKey={(r) => r.id}
+          rowClassName={(r) =>
+            [r.id === flashId ? 'row-flash' : '', r.state === 'pending' ? 'row-dim' : '']
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
           empty={
             <EmptyState icon={<IconGlobe size={26} />} title={t('china.emptyTitle')} description={t('china.emptyDesc')} />
           }
