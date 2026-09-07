@@ -88,16 +88,32 @@ class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
             )
         return actual
 
-    @admin.display(description="ПВЗ клиента")
+    @admin.display(description="ПВЗ клиента (действует сейчас)")
     def user_pickup_point(self, obj):
-        """ПВЗ из карточки клиента.
+        """ПВЗ из карточки клиента и пояснение, какой ПВЗ реально в силе.
 
-        У самой посылки ПВЗ пустой до приёмки — из формы это выглядит так,
-        будто ПВЗ потеряли, хотя у клиента он есть.
+        Поле «ПВЗ» у посылки — это где её физически приняли, и до приёмки оно
+        пустое. Пустое поле читается как «ПВЗ не выбран», хотя система в этот
+        момент везде использует ПВЗ клиента:
+        Q(pickup_point=X) | Q(pickup_point=None, user__pickup_point=X).
         """
         if obj.user_id is None:
             return "— посылка без клиента"
-        return obj.user.pickup_point or "— у клиента не задан"
+        client_pp = obj.user.pickup_point
+        if client_pp is None:
+            return "— у клиента ПВЗ не задан"
+        if obj.pickup_point_id:
+            if obj.pickup_point_id == client_pp.id:
+                return f"{client_pp} — совпадает с ПВЗ приёмки"
+            return format_html(
+                '{} <b style="color:#b00">(принята в другом: {})</b>',
+                client_pp,
+                obj.pickup_point,
+            )
+        return format_html(
+            "{} <span style='color:#666'>— посылка числится за ним, пока не принята</span>",
+            client_pp,
+        )
 
     def get_readonly_fields(self, request, obj=None):
         ro = list(super().get_readonly_fields(request, obj))
@@ -109,12 +125,32 @@ class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
         return ro
 
     def get_fields(self, request, obj=None):
+        """Справку из карточки клиента ставим вплотную к соответствующему полю.
+
+        Раньше обе вставлялись после client_code, и пояснение про ПВЗ
+        оказывалось далеко от самого поля «ПВЗ» — читать его было незачем.
+        """
         fields = list(super().get_fields(request, obj))
-        if obj is not None:
-            for extra in ("user_client_code", "user_pickup_point"):
-                if extra not in fields:
-                    fields.insert(fields.index("client_code") + 1, extra)
+        if obj is None:
+            return fields
+        for anchor, extra in (("client_code", "user_client_code"), ("pickup_point", "user_pickup_point")):
+            if anchor not in fields:
+                continue
+            # Django дописывает read-only поля в конец списка — переставляем.
+            if extra in fields:
+                fields.remove(extra)
+            fields.insert(fields.index(anchor) + 1, extra)
         return fields
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        field = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "pickup_point" and field is not None:
+            field.help_text = (
+                "Где посылку физически приняли. Пусто — ещё не принята; до приёмки "
+                "она числится за ПВЗ клиента (см. строку ниже), и поиск по ПВЗ её "
+                "находит. Заполняется автоматически при статусе «В ПВЗ»."
+            )
+        return field
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         # ПВЗ не был ограничен ничем: в списке лежали пункты всех карго, и

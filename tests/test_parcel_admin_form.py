@@ -30,9 +30,12 @@ def test_shows_client_code_and_pickup_from_client_card(admin_obj):
     )
 
     assert admin_obj.user_client_code(parcel) == "ISI-0177"
-    # У непринятой посылки своего ПВЗ нет — показываем ПВЗ клиента.
+    # У непринятой посылки своего ПВЗ нет — показываем ПВЗ клиента и то, что
+    # именно за ним посылка сейчас числится.
     assert parcel.pickup_point_id is None
-    assert admin_obj.user_pickup_point(parcel) == point
+    shown = admin_obj.user_pickup_point(parcel)
+    assert "1 КАРГО Ош" in shown
+    assert "пока не принята" in shown
 
 
 @pytest.mark.django_db
@@ -95,3 +98,47 @@ def test_pickup_choices_limited_to_parcel_cargo(admin_obj, rf, superuser):
     ids = set(field.queryset.values_list("id", flat=True))
     assert my_point.id in ids
     assert foreign.id not in ids
+
+
+@pytest.mark.django_db
+def test_pickup_mismatch_is_visible(admin_obj):
+    """Принята не в свой ПВЗ — это нештатно и должно бросаться в глаза."""
+    cargo = CargoCompanyFactory()
+    home = PickupPointFactory(cargo=cargo, title="ПВЗ Ош")
+    other = PickupPointFactory(cargo=cargo, title="ПВЗ Манас")
+    user = UserFactory(cargo=cargo, pickup_point=home)
+    parcel = Parcel.objects.create(
+        cargo=cargo, user=user, client_code=user.client_code, track_number="T6",
+        status="at_pickup_point", pickup_point=other,
+    )
+
+    shown = admin_obj.user_pickup_point(parcel)
+    assert "ПВЗ Ош" in shown and "ПВЗ Манас" in shown
+
+
+@pytest.mark.django_db
+def test_pickup_match_is_stated_plainly(admin_obj):
+    cargo = CargoCompanyFactory()
+    home = PickupPointFactory(cargo=cargo, title="ПВЗ Ош")
+    user = UserFactory(cargo=cargo, pickup_point=home)
+    parcel = Parcel.objects.create(
+        cargo=cargo, user=user, client_code=user.client_code, track_number="T7",
+        status="at_pickup_point", pickup_point=home,
+    )
+
+    assert "совпадает" in admin_obj.user_pickup_point(parcel)
+
+
+@pytest.mark.django_db
+def test_client_pickup_row_sits_next_to_parcel_pickup(admin_obj, rf, superuser):
+    """Пояснение бесполезно, если стоит далеко от самого поля «ПВЗ»."""
+    cargo = CargoCompanyFactory()
+    parcel = Parcel.objects.create(
+        cargo=cargo, user=None, client_code="", track_number="T8", status="created"
+    )
+    request = rf.get("/")
+    request.user = superuser
+
+    fields = admin_obj.get_fields(request, parcel)
+    assert fields.index("user_pickup_point") == fields.index("pickup_point") + 1
+    assert fields.index("user_client_code") == fields.index("client_code") + 1
