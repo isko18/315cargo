@@ -27,7 +27,7 @@ def test_history_operator_sees_only_own(api_client, cargo_admin):
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(op1).access_token}")
     r = api_client.get("/api/history/")
     assert r.status_code == 200
-    tracks = {row["track_number"] for row in r.data}
+    tracks = {row["track_number"] for row in r.data["results"]}
     assert tracks == {"H-OP1-REC", "H-OP1-ISS"}
     assert "H-OP2-REC" not in tracks
 
@@ -45,17 +45,17 @@ def test_history_manager_sees_all_and_filters(cargo_admin_client):
 
     # Админ карго видит всё по карго.
     r = cargo_admin_client.get("/api/history/")
-    tracks = {row["track_number"] for row in r.data}
+    tracks = {row["track_number"] for row in r.data["results"]}
     assert {"M-REC-1", "M-ISS-1", "M-REC-2"} <= tracks
 
     # Фильтр по типу.
     r = cargo_admin_client.get("/api/history/?type=issue")
-    types = {row["type"] for row in r.data}
+    types = {row["type"] for row in r.data["results"]}
     assert types == {"issue"}
 
     # Фильтр по оператору.
     r = cargo_admin_client.get(f"/api/history/?operator={op2.id}")
-    tracks = {row["track_number"] for row in r.data}
+    tracks = {row["track_number"] for row in r.data["results"]}
     assert tracks == {"M-REC-2"}
 
 
@@ -75,9 +75,9 @@ def test_history_china_type_includes_orphan_for_china_operator(api_client, cargo
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(china_op).access_token}")
     r = api_client.get("/api/history/?type=china")
     assert r.status_code == 200
-    tracks = {row["track_number"] for row in r.data}
+    tracks = {row["track_number"] for row in r.data["results"]}
     assert "CN-ORPH-1" in tracks
-    assert all(row["type"] == "china" for row in r.data)
+    assert all(row["type"] == "china" for row in r.data["results"])
 
 
 @pytest.mark.django_db
@@ -90,5 +90,5 @@ def test_history_cargo_scoped(cargo_admin_client):
     _op(other, op_other, Parcel.Status.ISSUED, "OTHER-ISS", price="9.00")
 
     r = cargo_admin_client.get("/api/history/")
-    tracks = {row["track_number"] for row in r.data}
+    tracks = {row["track_number"] for row in r.data["results"]}
     assert "OTHER-ISS" not in tracks

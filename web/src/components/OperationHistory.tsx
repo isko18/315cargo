@@ -46,6 +46,9 @@ const num = (v?: string | null) => (v ? parseFloat(v) || 0 : 0);
  * История операций приём/выдача с фильтрами и инлайн-редактированием веса.
  * Оператор видит только свои операции, владелец/админ — все по карго.
  */
+// Столько операций тянем за раз. Совпадает с default_limit на бэкенде.
+const PAGE_SIZE = 50;
+
 export default function OperationHistory({
   type,
   reloadSignal = 0,
@@ -61,6 +64,8 @@ export default function OperationHistory({
 
   const [rows, setRows] = useState<Op[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [err, setErr] = useState('');
 
   const [search, setSearch] = useState('');
@@ -82,30 +87,59 @@ export default function OperationHistory({
     return () => clearTimeout(h);
   }, [search]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setErr('');
+  /** Параметры фильтров без пагинации — общие для первой страницы и догрузки. */
+  function baseParams() {
     const p = new URLSearchParams({ type });
     if (debounced) p.set('search', debounced);
     if (dateFrom) p.set('date_from', dateFrom);
     if (dateTo) p.set('date_to', dateTo);
     if (operator) p.set('operator', operator);
-    get(`/api/history/?${p.toString()}`)
+    p.set('limit', String(PAGE_SIZE));
+    return p;
+  }
+
+  // Первая страница: при смене фильтров список начинается заново.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr('');
+    get(`/api/history/?${baseParams().toString()}`)
       .then((d: any) => {
-        if (!cancelled) setRows((d?.results ?? d) as Op[]);
+        if (cancelled) return;
+        setRows((d?.results ?? d) as Op[]);
+        setTotal(typeof d?.count === 'number' ? d.count : (d?.results ?? d ?? []).length);
       })
       .catch((e) => {
         if (!cancelled) {
           setErr((e as ApiError).message);
           setRows(null);
+          setTotal(0);
         }
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, reloadSignal, debounced, dateFrom, dateTo, operator]);
+
+  /** Догружает следующую страницу, не сбрасывая уже показанное. */
+  async function loadMore() {
+    if (loadingMore || rows === null) return;
+    setLoadingMore(true);
+    try {
+      const p = baseParams();
+      p.set('offset', String(rows.length));
+      const d: any = await get(`/api/history/?${p.toString()}`);
+      const next = (d?.results ?? d) as Op[];
+      setRows((cur) => [...(cur ?? []), ...next]);
+      if (typeof d?.count === 'number') setTotal(d.count);
+    } catch (e) {
+      setErr((e as ApiError).message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   // Присвоение клиента «ничьей» посылке прямо из истории.
   async function assign(parcelId: number, code: string) {
@@ -250,7 +284,12 @@ export default function OperationHistory({
         actions={
           rows && (
             <div className="cluster gap-sm">
-              <Badge variant="plain">{totals.count} {t('wh.pcs')}</Badge>
+              {/* Суммы считаются по загруженным строкам, поэтому показываем,
+                  сколько из скольких загружено — иначе итог вводит в заблуждение. */}
+              <Badge variant="plain">
+                {total > totals.count ? `${totals.count} ${t('hist.of')} ${total}` : totals.count}{' '}
+                {t('wh.pcs')}
+              </Badge>
               <Badge variant="violet">{totals.weight.toFixed(2)} кг</Badge>
               <Badge variant="green">{money(totals.price)}</Badge>
             </div>
@@ -314,6 +353,14 @@ export default function OperationHistory({
           />
         }
       />
+
+      {rows !== null && rows.length < total && (
+        <div className="hist-more">
+          <Button variant="secondary" onClick={loadMore} loading={loadingMore}>
+            {t('hist.loadMore')} ({total - rows.length})
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

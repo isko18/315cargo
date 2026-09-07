@@ -120,6 +120,14 @@ class ParcelStatusHistory(models.Model):
         ordering = ("-created_at",)
         verbose_name = _("История статуса посылки")
         verbose_name_plural = _("История статусов посылок")
+        indexes = [
+            # История операций всегда читается «свежие сверху» с фильтром по
+            # статусу (приём / выдача / Китай) — без индекса это скан таблицы,
+            # которая растёт на каждую смену статуса каждой посылки.
+            models.Index(fields=["status", "-created_at"], name="psh_status_created_idx"),
+            # Оператор видит только свои операции.
+            models.Index(fields=["changed_by", "-created_at"], name="psh_actor_created_idx"),
+        ]
 
     def __str__(self):
         return f"{self.parcel.track_number} {self.status}"

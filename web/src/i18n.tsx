@@ -576,6 +576,8 @@ const DICT: Record<Lang, Record<string, string>> = {
 
     // История операций (приём/выдача)
     'hist.tab': 'История',
+    'hist.loadMore': 'Показать ещё',
+    'hist.of': 'из',
     'hist.title': 'История операций',
     'hist.subtitleManager': 'Приёмы и выдачи по вашему карго. Фильтруйте по оператору, типу и датам.',
     'hist.subtitleMine': 'Ваши приёмы и выдачи.',
@@ -1196,6 +1198,8 @@ const DICT: Record<Lang, Record<string, string>> = {
 
     // 操作历史（收货/出货）
     'hist.tab': '历史',
+    'hist.loadMore': '显示更多',
+    'hist.of': '/',
     'hist.title': '操作历史',
     'hist.subtitleManager': '本货运的收货与出货。可按操作员、类型和日期筛选。',
     'hist.subtitleMine': '您的收货与出货记录。',

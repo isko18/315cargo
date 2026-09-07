@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
@@ -177,6 +178,17 @@ class ParcelViewSet(ReadOnlyModelViewSet):
         return Response(ParcelSerializer(parcel).data)
 
 
+class OperationHistoryPagination(LimitOffsetPagination):
+    """Постраничная выдача истории.
+
+    limit по умолчанию небольшой: страницу открывают на телефоне со склада, и
+    тянуть туда всю историю карго незачем.
+    """
+
+    default_limit = 50
+    max_limit = 200
+
+
 class OperationHistoryViewSet(ReadOnlyModelViewSet):
     """История операций приём/выдача.
 
@@ -190,6 +202,9 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
     # Историю показываем прямо на страницах «Приём»/«Выдача»: доступ — любому
     # сотруднику карго (скоуп по роли: оператор видит только свои операции).
     permission_classes = (IsAuthenticated, IsCargoManager)
+    # Раньше стояла обрезка [:500]: операции старше пятисотой были недостижимы
+    # вообще, а ответ рос вместе с историей. Постранично — и достаются любые.
+    pagination_class = OperationHistoryPagination
     queryset = ParcelStatusHistory.objects.none()
 
     RECEIVE = Parcel.Status.AT_PICKUP_POINT
@@ -256,5 +271,4 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
                 | Q(parcel__client_code__icontains=search)
                 | Q(parcel__user__full_name__icontains=search)
             )
-        # Пагинации в проекте нет — ограничиваем последними 500 операциями.
-        return qs[:500]
+        return qs

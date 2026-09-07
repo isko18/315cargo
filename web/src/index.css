@@ -1018,6 +1018,9 @@ tr.row-flash > td { animation: rowFlash 1.4s ease-out; }
 .issue-bar .grow { flex: 1 1 auto; min-width: 0; }
 @media (max-width: 560px) { .issue-bar .grow { display: none; } }
 
+/* Кнопка догрузки истории — под таблицей, по центру. */
+.hist-more { display: flex; justify-content: center; padding: 14px 20px 18px; border-top: 1px solid var(--border); }
+
 /* История покупок клиента */
 .hist-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
 
