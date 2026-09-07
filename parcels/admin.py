@@ -5,7 +5,8 @@ from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from common.admin_mixins import CargoScopedAdminMixin
+from common.admin_mixins import CargoScopedAdminMixin, get_request_cargo_id
+from pickup_points.models import PickupPoint
 from common.audit import log_audit
 from common.models import AuditLog
 
@@ -69,6 +70,65 @@ class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
         "user__client_code",
     )
     raw_id_fields = ("cargo", "user", "order")
+
+    @admin.display(description="Код клиента (в карточке клиента)")
+    def user_client_code(self, obj):
+        """Код из карточки клиента — источник правды.
+
+        Поле client_code на посылке это копия на момент приёмки. Копия и
+        оригинал расходятся, например, после перенумерации ПВЗ, и тогда по
+        форме непонятно, какой код настоящий.
+        """
+        if obj.user_id is None:
+            return "— посылка без клиента"
+        actual = obj.user.client_code or "—"
+        if obj.client_code and obj.client_code != actual:
+            return format_html(
+                '{} <b style="color:#b00">(на посылке: {})</b>', actual, obj.client_code
+            )
+        return actual
+
+    @admin.display(description="ПВЗ клиента")
+    def user_pickup_point(self, obj):
+        """ПВЗ из карточки клиента.
+
+        У самой посылки ПВЗ пустой до приёмки — из формы это выглядит так,
+        будто ПВЗ потеряли, хотя у клиента он есть.
+        """
+        if obj.user_id is None:
+            return "— посылка без клиента"
+        return obj.user.pickup_point or "— у клиента не задан"
+
+    def get_readonly_fields(self, request, obj=None):
+        ro = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            # На существующей посылке код правится только через привязку
+            # клиента: ручная правка копии разъезжается с карточкой клиента.
+            # На форме создания поле обязательное, поэтому там оставляем.
+            ro += ["client_code", "user_client_code", "user_pickup_point"]
+        return ro
+
+    def get_fields(self, request, obj=None):
+        fields = list(super().get_fields(request, obj))
+        if obj is not None:
+            for extra in ("user_client_code", "user_pickup_point"):
+                if extra not in fields:
+                    fields.insert(fields.index("client_code") + 1, extra)
+        return fields
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        # ПВЗ не был ограничен ничем: в списке лежали пункты всех карго, и
+        # посылке можно было молча назначить чужой.
+        if db_field.name == "pickup_point":
+            cargo_id = get_request_cargo_id(request.user)
+            obj_id = request.resolver_match.kwargs.get("object_id") if request.resolver_match else None
+            if obj_id:
+                parcel = Parcel.objects.filter(pk=obj_id).only("cargo_id").first()
+                if parcel is not None:
+                    cargo_id = parcel.cargo_id
+            if cargo_id:
+                kwargs["queryset"] = PickupPoint.objects.filter(cargo_id=cargo_id)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
     inlines = (ParcelStatusHistoryInline,)
     change_list_template = "admin/parcels/parcel/change_list.html"
 
