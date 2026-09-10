@@ -220,3 +220,54 @@ def test_does_not_pass_kyrgyzstan_without_pickup_scan():
     advance_parcel_auto(parcel)
     parcel.refresh_from_db()
     assert parcel.status == Parcel.Status.ARRIVED_KYRGYZSTAN
+
+
+# --- Разовая подтяжка после смены сроков ---
+
+
+@pytest.mark.django_db
+def test_catchup_moves_status_without_notifying():
+    """Сдвиг вызван правкой настроек, а не движением коробки.
+
+    Пуш «посылка в пути» здесь был бы ложным, а при сотнях посылок читался бы
+    как сбой. Обычный крон уведомления шлёт — он реагирует на реальное время.
+    """
+    client = UserFactory()
+    get_or_create_preference(client)
+    parcel = ParcelFactory(user=client, cargo=client.cargo)
+    _anchor_china(parcel, timezone.now() - timedelta(days=6))
+    Notification.objects.filter(user=client).delete()
+
+    call_command("catchup_auto_statuses", "--apply")
+
+    parcel.refresh_from_db()
+    assert parcel.status == Parcel.Status.ARRIVED_TOPA
+    assert Notification.objects.filter(user=client).count() == 0
+
+
+@pytest.mark.django_db
+def test_catchup_dry_run_changes_nothing():
+    client = UserFactory()
+    parcel = ParcelFactory(user=client, cargo=client.cargo)
+    _anchor_china(parcel, timezone.now() - timedelta(days=6))
+    parcel.refresh_from_db()
+    before = parcel.status
+
+    call_command("catchup_auto_statuses")
+
+    parcel.refresh_from_db()
+    assert parcel.status == before
+
+
+@pytest.mark.django_db
+def test_regular_cron_still_notifies():
+    """Глушение — только у подтяжки: обычный прогон обязан уведомлять."""
+    client = UserFactory()
+    get_or_create_preference(client)
+    parcel = ParcelFactory(user=client, cargo=client.cargo)
+    _anchor_china(parcel, timezone.now() - timedelta(days=6))
+    Notification.objects.filter(user=client).delete()
+
+    advance_parcel_auto(parcel)
+
+    assert Notification.objects.filter(user=client).exists()

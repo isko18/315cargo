@@ -267,8 +267,8 @@ def update_parcel_status(parcel, status, comment=None, changed_by=None):
     return parcel
 
 
-# Порядок авто-цепочки после 1-го скана (скан на складе в Китае).
-# Китай → обработка → Топа → в пути → Кыргызстан. Последний статус —
+# Порядок авто-цепочки после 1-го скана (скан на складе в Китае):
+# Китай → классификация → в пути → Топа → Кыргызстан. Последний статус —
 # «ожидание 2-го скана в ПВЗ» (дальше at_pickup_point ставится вручную).
 AUTO_FLOW = [
     Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
@@ -294,11 +294,15 @@ def _auto_anchor(parcel):
     return started or parcel.arrived_at or parcel.created_at
 
 
-def advance_parcel_auto(parcel, now=None):
+def advance_parcel_auto(parcel, now=None, notify=True):
     """Продвинуть посылку по авто-цепочке в зависимости от прошедшего времени.
 
     Идемпотентно и «догоняет» несколько шагов сразу (если крон долго не
     запускался). Возвращает True, если статус изменился.
+
+    ``notify=False`` гасит уведомления полностью — для разовой подтяжки после
+    смены сроков: там сдвиг статусов вызван правкой настроек, а не реальным
+    движением посылок, и пуш клиенту был бы ложным.
     """
     now = now or timezone.now()
     if parcel.is_archived or parcel.status not in AUTO_FLOW:
@@ -329,12 +333,12 @@ def advance_parcel_auto(parcel, now=None):
         # «догнать» несколько шагов сразу (крон долго не запускался, старая
         # посылка), и четыре пуша подряд были бы спамом. Промежуточные шаги
         # всё равно попадают в историю и видны в трекинге.
-        parcel._suppress_notification = idx < target
+        parcel._suppress_notification = (not notify) or idx < target
         update_parcel_status(parcel, AUTO_FLOW[idx], comment="Автоматический статус")
     return True
 
 
-def advance_all_parcels(now=None):
+def advance_all_parcels(now=None, notify=True):
     """Продвинуть все посылки в авто-цепочке. Возвращает число сдвинутых.
 
     Общая логика для management-команды ``advance_parcels`` и Celery-задачи.
@@ -343,6 +347,6 @@ def advance_all_parcels(now=None):
     moved = 0
     qs = Parcel.objects.filter(status__in=advancing, is_archived=False)
     for parcel in qs.iterator():
-        if advance_parcel_auto(parcel, now=now):
+        if advance_parcel_auto(parcel, now=now, notify=notify):
             moved += 1
     return moved
