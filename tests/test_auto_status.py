@@ -160,3 +160,63 @@ def test_advance_command_runs():
     call_command("advance_parcels")
     parcel.refresh_from_db()
     assert parcel.status == Parcel.Status.ARRIVED_KYRGYZSTAN
+
+
+# --- Маршрут: со склада посылка сначала едет, и только потом попадает в Топа ---
+
+
+@pytest.mark.django_db
+def test_route_order_is_transit_then_topa():
+    """Порядок был обратный: «Прибыл в Топа» раньше «В пути»."""
+    from parcels.services import AUTO_FLOW
+
+    assert AUTO_FLOW.index(Parcel.Status.IN_TRANSIT) < AUTO_FLOW.index(Parcel.Status.ARRIVED_TOPA)
+
+
+@pytest.mark.django_db
+def test_status_rank_matches_auto_flow():
+    """Ранг защищает от отката при повторном скане.
+
+    Если он разойдётся с AUTO_FLOW, авто-переход будет выглядеть откатом назад
+    и повторный скан начнёт отклоняться с «посылка уже дальше по маршруту».
+    """
+    from parcels.services import AUTO_FLOW, STATUS_RANK
+
+    ranks = [STATUS_RANK[s] for s in AUTO_FLOW]
+    assert ranks == sorted(ranks)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "age,expected",
+    [
+        (timedelta(seconds=30), Parcel.Status.PROCESSING),
+        (timedelta(days=1, hours=1), Parcel.Status.IN_TRANSIT),
+        (timedelta(days=5, hours=1), Parcel.Status.ARRIVED_TOPA),
+        (timedelta(days=9, hours=1), Parcel.Status.ARRIVED_KYRGYZSTAN),
+    ],
+)
+def test_full_timeline_reaches_kyrgyzstan_in_nine_days(age, expected):
+    """Согласованный маршрут: ~9 дней от склада в Китае до Кыргызстана.
+
+    10 сек → Классификация, +1 день → В пути, +4 дня → Топа, +4 дня → КР.
+    """
+    client = UserFactory()
+    parcel = ParcelFactory(user=client, cargo=client.cargo)
+    _anchor_china(parcel, timezone.now() - age)
+
+    advance_parcel_auto(parcel)
+    parcel.refresh_from_db()
+    assert parcel.status == expected
+
+
+@pytest.mark.django_db
+def test_does_not_pass_kyrgyzstan_without_pickup_scan():
+    """Последний авто-статус — «Прибыл в Кыргызстан». Дальше только скан в ПВЗ."""
+    client = UserFactory()
+    parcel = ParcelFactory(user=client, cargo=client.cargo)
+    _anchor_china(parcel, timezone.now() - timedelta(days=60))
+
+    advance_parcel_auto(parcel)
+    parcel.refresh_from_db()
+    assert parcel.status == Parcel.Status.ARRIVED_KYRGYZSTAN

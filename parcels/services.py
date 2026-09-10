@@ -32,8 +32,11 @@ _STATUS_ORDER = [
     Parcel.Status.IN_STORAGE,
     Parcel.Status.SENT_TO_KYRGYZSTAN,
     Parcel.Status.PROCESSING,
-    Parcel.Status.ARRIVED_TOPA,
+    # Порядок маршрута: со склада посылка сначала едет («В пути») и только
+    # потом попадает в Топа. Ранг участвует в защите от отката при повторном
+    # скане, поэтому обязан совпадать с AUTO_FLOW.
     Parcel.Status.IN_TRANSIT,
+    Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.ARRIVED_KYRGYZSTAN,
     Parcel.Status.AT_PICKUP_POINT,
     Parcel.Status.CITY_DELIVERY,
@@ -270,8 +273,8 @@ def update_parcel_status(parcel, status, comment=None, changed_by=None):
 AUTO_FLOW = [
     Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
     Parcel.Status.PROCESSING,
-    Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.IN_TRANSIT,
+    Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.ARRIVED_KYRGYZSTAN,
 ]
 

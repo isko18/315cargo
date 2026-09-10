@@ -290,11 +290,23 @@ CELERY_RESULT_BACKEND = REDIS_URL
 # "arrived_kyrgyzstan" — ожидание 2-го скана в ПВЗ (at_pickup_point).
 # Маршрут: Китай → (10с) обработка → (4д) Топа → (2д) в пути → (2д) Кыргызстан.
 # Ключ = текущий статус, значение = задержка перед переходом к следующему.
+# Сколько статус держится, прежде чем посылка уйдёт на следующий. Ключ —
+# текущий статус, значение — задержка перед переходом. Порядок переходов
+# задаёт AUTO_FLOW; отсчёт накопительный от скана на складе в Китае.
+#
+#   скан в Китае → +10 сек  → Классификация и обработка
+#                → +1 день  → В пути
+#                → +4 дня   → Прибыл в Топа
+#                → +4 дня   → Прибыл в Кыргызстан   (2 дня стоянка + 2 в пути)
+#   → скан в ПВЗ (вручную)  → Прибыл в ПВЗ
+#
+# Итого до Кыргызстана ~9 дней. Меняется через .env без деплоя, но требует
+# рестарта cargo-celery.
 AUTO_STATUS_DELAYS = {
-    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10)),  # 10 сек → обработка
-    "processing": int(os.getenv("AUTO_DELAY_PROCESSING", 4 * 86400)),           # 4 дня → Топа
-    "arrived_topa": int(os.getenv("AUTO_DELAY_TOPA", 2 * 86400)),               # 2 дня → в пути
-    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 2 * 86400)),           # 2 дня → Кыргызстан
+    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10)),
+    "processing": int(os.getenv("AUTO_DELAY_PROCESSING", 1 * 86400)),
+    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 4 * 86400)),
+    "arrived_topa": int(os.getenv("AUTO_DELAY_TOPA", 4 * 86400)),
 }
 
 LOGGING = {
