@@ -47,7 +47,7 @@ class ParcelAdmin(CargoScopedAdminMixin, admin.ModelAdmin):
         "delivery_price",
         "created_at",
     )
-    list_filter = ("status", "cargo", "created_at")
+    list_filter = ("status", "payment_status", "cargo", "created_at")
 
     @admin.display(description="Товар")
     def product_title(self, obj):

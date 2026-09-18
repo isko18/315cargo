@@ -52,6 +52,19 @@ def remember_old_status(sender, instance, **kwargs):
     instance.apply_status_timestamps()
 
 
+def _stamp_notified(parcel):
+    """Отмечает, что клиенту ушло уведомление.
+
+    Через .update(), а не save(): мы внутри post_save этой же посылки, и
+    обычное сохранение ушло бы на второй круг сигнала.
+    """
+    from django.utils import timezone
+
+    now = timezone.now()
+    Parcel.objects.filter(pk=parcel.pk).update(notified_at=now)
+    parcel.notified_at = now
+
+
 @receiver(post_save, sender=Parcel)
 def create_status_history_and_notification(sender, instance, created, **kwargs):
     old_status = getattr(instance, "_old_status", None)
@@ -92,6 +105,7 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
             type=NotificationType.PARCEL_AT_PICKUP_POINT,
             data=data,
         )
+        _stamp_notified(instance)
         return
 
     title, phrase = STATUS_MESSAGES.get(
@@ -104,3 +118,4 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
         type=NotificationType.PARCEL_STATUS_CHANGED,
         data=data,
     )
+    _stamp_notified(instance)

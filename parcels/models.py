@@ -21,6 +21,15 @@ class Parcel(models.Model):
         ISSUED = "issued", _("Выдан клиенту")
         CANCELLED = "cancelled", _("Отменён")
 
+    class PaymentStatus(models.TextChoices):
+        UNPAID = "unpaid", _("Не оплачен")
+        PARTIAL = "partial", _("Частично оплачен")
+        PAID = "paid", _("Оплачен")
+
+    class ReceiptMethod(models.TextChoices):
+        PICKUP = "pickup", _("Самовывоз из ПВЗ")
+        CITY_DELIVERY = "city_delivery", _("Доставка по городу")
+
     cargo = models.ForeignKey(
         "cargo.CargoCompany",
         on_delete=models.PROTECT,
@@ -65,6 +74,47 @@ class Parcel(models.Model):
     volume = models.DecimalField(_("Объём, м³"), max_digits=10, decimal_places=3, null=True, blank=True)
     delivery_price = models.DecimalField(
         _("Стоимость доставки"), max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    # --- Карточка товара в панели ---
+    # Габариты нужны отдельными числами, а не строкой: по ним считается объём
+    # и рассчитывается место в машине.
+    length_cm = models.DecimalField(
+        _("Длина, см"), max_digits=8, decimal_places=1, null=True, blank=True
+    )
+    width_cm = models.DecimalField(
+        _("Ширина, см"), max_digits=8, decimal_places=1, null=True, blank=True
+    )
+    height_cm = models.DecimalField(
+        _("Высота, см"), max_digits=8, decimal_places=1, null=True, blank=True
+    )
+    payment_status = models.CharField(
+        _("Статус оплаты"), max_length=16, choices=PaymentStatus.choices,
+        default=PaymentStatus.UNPAID, db_index=True,
+    )
+    receipt_method = models.CharField(
+        _("Способ получения"), max_length=16, choices=ReceiptMethod.choices,
+        default=ReceiptMethod.PICKUP,
+    )
+    delivery_address = models.TextField(
+        _("Адрес доставки"), blank=True,
+        help_text=_("Заполняется при доставке по городу."),
+    )
+    usd_rate = models.DecimalField(
+        _("Курс USD"), max_digits=10, decimal_places=4, null=True, blank=True,
+        help_text=_("Курс на момент расчёта: потом он меняется, а счёт клиента — нет."),
+    )
+    client_price = models.DecimalField(
+        _("Цена клиенту"), max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text=_(
+            "Итоговая сумма к оплате. Отличается от расчёта по тарифу, когда были "
+            "обрешётка, упаковка или своя договорённость."
+        ),
+    )
+    crating = models.BooleanField(_("Обрешётка"), default=False)
+    packaging = models.BooleanField(_("Упаковка"), default=False)
+    notified_at = models.DateTimeField(
+        _("Уведомление отправлено"), null=True, blank=True,
+        help_text=_("Когда клиенту ушло последнее уведомление о статусе."),
     )
     arrived_at = models.DateTimeField(_("Дата поступления"), null=True, blank=True)
     issued_at = models.DateTimeField(_("Дата выдачи"), null=True, blank=True)

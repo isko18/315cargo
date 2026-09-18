@@ -8,6 +8,8 @@
 операция выглядит так, будто коробку снова сканировали на складе.
 """
 
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -46,6 +48,48 @@ class ParcelUpdateSerializer(serializers.Serializer):
         queryset=PickupPoint.objects.all(), required=False, allow_null=True
     )
     location = serializers.CharField(required=False, allow_blank=True)
+
+    # Карточка товара. Записываются как есть — считать по ним нечего, кроме
+    # объёма, который пересчитывается ниже из габаритов.
+    length_cm = serializers.DecimalField(
+        max_digits=8, decimal_places=1, required=False, allow_null=True
+    )
+    width_cm = serializers.DecimalField(
+        max_digits=8, decimal_places=1, required=False, allow_null=True
+    )
+    height_cm = serializers.DecimalField(
+        max_digits=8, decimal_places=1, required=False, allow_null=True
+    )
+    payment_status = serializers.ChoiceField(
+        choices=Parcel.PaymentStatus.choices, required=False
+    )
+    receipt_method = serializers.ChoiceField(
+        choices=Parcel.ReceiptMethod.choices, required=False
+    )
+    delivery_address = serializers.CharField(required=False, allow_blank=True)
+    usd_rate = serializers.DecimalField(
+        max_digits=10, decimal_places=4, required=False, allow_null=True, min_value=0
+    )
+    client_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True, min_value=0
+    )
+    crating = serializers.BooleanField(required=False)
+    packaging = serializers.BooleanField(required=False)
+
+
+# Поля карточки, которые кладутся в посылку без обработки.
+PLAIN_FIELDS = (
+    "length_cm",
+    "width_cm",
+    "height_cm",
+    "payment_status",
+    "receipt_method",
+    "delivery_address",
+    "usd_rate",
+    "client_price",
+    "crating",
+    "packaging",
+)
 
 
 class BulkScanItemSerializer(serializers.Serializer):
@@ -166,6 +210,21 @@ class ManagedParcelViewSet(GenericViewSet):
             if "location" in data:
                 parcel.location = data["location"]
                 fields.append("location")
+
+            for name in PLAIN_FIELDS:
+                if name in data:
+                    setattr(parcel, name, data[name])
+                    fields.append(name)
+
+            # Объём считаем сами: оператор меряет коробку, а не м³, и вводить
+            # одно и то же двумя способами — источник расхождений.
+            if {"length_cm", "width_cm", "height_cm"} & set(data):
+                dims = (parcel.length_cm, parcel.width_cm, parcel.height_cm)
+                if all(d for d in dims):
+                    parcel.volume = (dims[0] * dims[1] * dims[2] / Decimal(1_000_000)).quantize(
+                        Decimal("0.001")
+                    )
+                    fields.append("volume")
 
             if fields:
                 parcel.save(update_fields=[*dict.fromkeys(fields), "updated_at"])

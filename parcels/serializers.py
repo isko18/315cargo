@@ -21,6 +21,12 @@ class ParcelSerializer(serializers.ModelSerializer):
     # Откуда посылка: Pinduoduo, Taobao, вручную. Мобилка фильтрует по нему.
     source = serializers.SerializerMethodField()
     source_display_name = serializers.SerializerMethodField()
+    payment_status_display_name = serializers.CharField(
+        source="get_payment_status_display", read_only=True
+    )
+    receipt_method_display_name = serializers.CharField(
+        source="get_receipt_method_display", read_only=True
+    )
 
     def get_pickup_point_title(self, obj):
         pp = self._effective_pickup(obj)
@@ -89,6 +95,19 @@ class ParcelSerializer(serializers.ModelSerializer):
             "location",
             "weight",
             "volume",
+            "length_cm",
+            "width_cm",
+            "height_cm",
+            "payment_status",
+            "payment_status_display_name",
+            "receipt_method",
+            "receipt_method_display_name",
+            "delivery_address",
+            "usd_rate",
+            "client_price",
+            "crating",
+            "packaging",
+            "notified_at",
             "delivery_price",
             "arrived_at",
             "issued_at",
@@ -100,6 +119,8 @@ class ParcelSerializer(serializers.ModelSerializer):
             "cargo",
             "user",
             "client_code",
+            # Ставится, когда уведомление реально ушло, — панель его только читает.
+            "notified_at",
             "created_at",
             "updated_at",
         )
