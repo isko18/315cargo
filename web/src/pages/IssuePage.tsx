@@ -86,7 +86,7 @@ export default function IssuePage() {
     setLoading(true);
     setErr('');
     setMsg('');
-    get(`/api/parcels/?client_code=${encodeURIComponent(debounced)}`)
+    get(`/api/parcels/?client_code=${encodeURIComponent(debounced)}&limit=500`)
       .then((data: any) => {
         if (cancelled) return;
         const list = (data?.results ?? data) as Parcel[];
@@ -206,7 +206,7 @@ export default function IssuePage() {
     if (ok > 0) setIssuedTick((n) => n + 1); // обновить историю выдач
     // Перезагрузка текущего клиента, чтобы обновить статусы.
     try {
-      const data: any = await get(`/api/parcels/?client_code=${encodeURIComponent(debounced)}`);
+      const data: any = await get(`/api/parcels/?client_code=${encodeURIComponent(debounced)}&limit=500`);
       const list = (data?.results ?? data) as Parcel[];
       setParcels(list);
       setSel(new Set(list.filter((p) => p.status === READY).map((p) => p.id)));

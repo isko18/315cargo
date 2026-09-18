@@ -98,6 +98,10 @@ export default function WarehousePage() {
     }
     if (dateFrom) params.set('date_from', dateFrom);
     if (dateTo) params.set('date_to', dateTo);
+    // Список теперь постраничный. Панель показывает склад одним экраном, а не
+    // лентой, поэтому берём потолок страницы — иначе итоги в шапке считались
+    // бы по первым 50 и врали.
+    params.set('limit', '500');
     const qs = params.toString();
     get(`/api/parcels/${qs ? `?${qs}` : ''}`)
       .then((d: any) => setList((d?.results ?? d) as Parcel[]))

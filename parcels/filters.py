@@ -11,7 +11,7 @@ class ParcelFilter(CreatedAtDateRangeFilter):
     client_code = django_filters.CharFilter(field_name="client_code", lookup_expr="exact")
     # Список статусов через запятую: ?status_in=at_pickup_point,arrived_kyrgyzstan
     status_in = django_filters.BaseInFilter(field_name="status")
-    # Свободный поиск по треку / коду клиента / названию товара — для склада.
+    # Свободный поиск: трек, код клиента, название товара, ФИО и телефон клиента.
     search = django_filters.CharFilter(method="filter_search")
     # Только непривязанные к клиенту (pending со сканера).
     pending = django_filters.BooleanFilter(field_name="user", lookup_expr="isnull")
@@ -52,6 +52,10 @@ class ParcelFilter(CreatedAtDateRangeFilter):
             Q(track_number__icontains=value)
             | Q(client_code__icontains=value)
             | Q(order__product_title__icontains=value)
+            # По клиенту тоже: на выдаче ищут по фамилии и телефону, а не
+            # только по треку.
+            | Q(user__full_name__icontains=value)
+            | Q(user__phone__icontains=value)
         )
 
     def filter_pickup_point(self, queryset, name, value):

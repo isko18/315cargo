@@ -120,7 +120,7 @@ export default function CargoDetailPage() {
     let cancelled = false;
     setPLoading(true);
     setPErr('');
-    const params = new URLSearchParams({ pickup_point: String(pickupSel.id) });
+    const params = new URLSearchParams({ pickup_point: String(pickupSel.id), limit: '500' });
     if (pFilter === 'stock') {
       params.set('status', AT_PICKUP);
       params.set('archived', 'false');

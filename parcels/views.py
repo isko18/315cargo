@@ -27,10 +27,26 @@ User = get_user_model()
 MANAGER_ACTIONS = ("scan", "assign", "weight")
 
 
+class ParcelPagination(LimitOffsetPagination):
+    """Постраничный список посылок.
+
+    Без неё эндпоинт отдавал весь список одним куском: на нашем карго это
+    1 МБ, у крупного — десятки мегабайт и таймаут на телефоне.
+
+    max_limit крупный намеренно: выдача тянет все посылки одного клиента
+    разом (их надо показать одним списком, а не листать), и 500 с запасом
+    закрывает даже самого активного покупателя.
+    """
+
+    default_limit = 50
+    max_limit = 500
+
+
 class ParcelViewSet(ReadOnlyModelViewSet):
     serializer_class = ParcelSerializer
     permission_classes = (IsAuthenticated, IsOwnerOrStaff)
     filterset_class = ParcelFilter
+    pagination_class = ParcelPagination
     queryset = Parcel.objects.none()
 
     def get_permissions(self):

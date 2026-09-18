@@ -1,4 +1,5 @@
 from django.db.models import Q
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from cargo.models import CargoCompany
@@ -17,8 +18,12 @@ class UserSerializer(serializers.ModelSerializer):
     is_china_staff = serializers.BooleanField(read_only=True)
     is_staff = serializers.BooleanField(read_only=True)
     is_superuser = serializers.BooleanField(read_only=True)
+    # Тип объявлен явно: SerializerMethodField без аннотации уезжает в схему
+    # строкой, и мобильная панель видела здесь string, а в manage/staff/ —
+    # массив, хотя оба всегда отдают список.
     allowed_tabs = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_allowed_tabs(self, obj):
         # Эффективный список вкладок с учётом роли — для фильтрации меню.
         return user_allowed_tabs(obj)

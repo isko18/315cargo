@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import Parcel, ParcelStatusHistory
@@ -14,15 +15,28 @@ class ParcelSerializer(serializers.ModelSerializer):
     client_phone = serializers.CharField(source="user.phone", read_only=True, default=None)
     # ПВЗ приёмки (физический) в приоритете; иначе — ПВЗ клиента (адресат).
     pickup_point_title = serializers.SerializerMethodField()
+    # Тот же ПВЗ идентификатором: по названию сопоставлять нельзя — названия
+    # не уникальны и меняются, а мобильной панели нужно отправить его обратно.
+    pickup_point = serializers.SerializerMethodField()
     # Откуда посылка: Pinduoduo, Taobao, вручную. Мобилка фильтрует по нему.
     source = serializers.SerializerMethodField()
     source_display_name = serializers.SerializerMethodField()
 
     def get_pickup_point_title(self, obj):
+        pp = self._effective_pickup(obj)
+        return pp.title if pp else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_pickup_point(self, obj):
+        pp = self._effective_pickup(obj)
+        return pp.id if pp else None
+
+    @staticmethod
+    def _effective_pickup(obj):
+        """ПВЗ приёмки, иначе ПВЗ клиента — тот же порядок, что в фильтрах."""
         if obj.pickup_point_id:
-            return obj.pickup_point.title
-        user_pp = getattr(obj.user, "pickup_point", None) if obj.user_id else None
-        return user_pp.title if user_pp else None
+            return obj.pickup_point
+        return getattr(obj.user, "pickup_point", None) if obj.user_id else None
 
     def get_source(self, obj):
         """Источник заказа. Посылка со сканера (без заказа) — «вручную»."""
@@ -63,6 +77,7 @@ class ParcelSerializer(serializers.ModelSerializer):
             "client_code",
             "client_name",
             "client_phone",
+            "pickup_point",
             "pickup_point_title",
             "status",
             "status_display_name",

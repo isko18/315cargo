@@ -264,7 +264,7 @@ def test_parcel_exposes_marketplace_source(auth_client):
     # Посылка со сканера — заказа нет вовсе.
     ParcelFactory(user=auth_client.user, order=None, track_number="SRC-SCAN")
 
-    rows = {p["track_number"]: p for p in auth_client.get("/api/parcels/").data}
+    rows = {p["track_number"]: p for p in auth_client.get("/api/parcels/").data["results"]}
     assert rows["SRC-TB"]["source"] == "taobao"
     assert rows["SRC-TB"]["source_display_name"] == "Taobao"
     # Без заказа посылка считается заведённой вручную, а не выпадает из ответа.
@@ -286,7 +286,7 @@ def test_parcels_filter_by_marketplace(auth_client):
     ParcelFactory(user=auth_client.user, order=None, track_number="F-TRACK-SCAN")
 
     def tracks(query):
-        return {p["track_number"] for p in auth_client.get(f"/api/parcels/?{query}").data}
+        return {p["track_number"] for p in auth_client.get(f"/api/parcels/?{query}").data["results"]}
 
     assert tracks("source=taobao") == {"F-TRACK-TB"}
     assert tracks("source=pinduoduo") == {"F-TRACK-PDD"}
