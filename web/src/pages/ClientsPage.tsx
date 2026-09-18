@@ -1,7 +1,8 @@
 import { useEffect, useId, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { money } from '../money';
-import { ApiError, get } from '../api';
+import { ApiError, get, isPickupBound } from '../api';
+import { usePickup } from '../pickupContext';
 import { statusMeta } from '../status';
 import { useI18n } from '../i18n';
 import { fmtDate as formatDate } from '../format';
@@ -58,6 +59,11 @@ type History = {
 export default function ClientsPage() {
   const { t, lang } = useI18n();
   const fmtDate = (iso?: string | null) => formatDate(iso, lang);
+  const { points, activeId } = usePickup();
+  // Привязанный оператор ограничен своим ПВЗ на сервере — переключатель к нему
+  // не применяем (иначе чужой activeId спрячет его же клиентов).
+  const effectivePickup = isPickupBound() ? null : activeId;
+  const activePoint = points.find((p) => p.id === effectivePickup);
   const [list, setList] = useState<Client[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -80,15 +86,18 @@ export default function ClientsPage() {
   useEffect(() => {
     setLoading(true);
     setErr('');
-    const qs = debounced ? `?search=${encodeURIComponent(debounced)}` : '';
-    get(`/api/manage/clients/${qs}`)
+    const params = new URLSearchParams();
+    if (debounced) params.set('search', debounced);
+    if (effectivePickup) params.set('pickup_point', String(effectivePickup));
+    const qs = params.toString();
+    get(`/api/manage/clients/${qs ? `?${qs}` : ''}`)
       .then((d: any) => setList((d?.results ?? d) as Client[]))
       .catch((e) => {
         setErr((e as ApiError).message);
         setList(null);
       })
       .finally(() => setLoading(false));
-  }, [debounced]);
+  }, [debounced, effectivePickup]);
 
   const columns: Column<Client>[] = [
     {
@@ -110,7 +119,17 @@ export default function ClientsPage() {
 
   return (
     <div>
-      <PageHeader title={t('clients.title')} subtitle={t('clients.subtitle')} />
+      <PageHeader
+        title={t('clients.title')}
+        subtitle={
+          <>
+            {t('clients.subtitle')}
+            {activePoint && (
+              <> · {t('wh.pvz')}: <b>{activePoint.title}</b> ({t('wh.pvzHint')})</>
+            )}
+          </>
+        }
+      />
 
       <Card>
         <CardHeader

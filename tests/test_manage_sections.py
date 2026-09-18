@@ -47,6 +47,60 @@ def test_clients_scoped_to_cargo(cargo_admin_client):
 
 
 @pytest.mark.django_db
+def test_clients_filtered_by_pickup_switcher(cargo_admin_client):
+    """Переключатель ПВЗ в шапке должен сужать и список клиентов."""
+    from tests.factories import PickupPointFactory
+
+    cargo = cargo_admin_client.user.cargo
+    here = PickupPointFactory(cargo=cargo)
+    there = PickupPointFactory(cargo=cargo)
+    mine = UserFactory(cargo=cargo, pickup_point=here)
+    theirs = UserFactory(cargo=cargo, pickup_point=there)
+
+    r = cargo_admin_client.get(f"/api/manage/clients/?pickup_point={here.id}")
+
+    ids = [c["id"] for c in _items(r)]
+    assert mine.id in ids
+    assert theirs.id not in ids
+
+
+@pytest.mark.django_db
+def test_bound_operator_ignores_pickup_switcher(api_client, cargo):
+    """Чужой ПВЗ в параметре не должен ни открывать чужих, ни прятать своих.
+
+    activeId лежит в localStorage и легко оказывается от другого пункта —
+    применив его, мы спрятали бы от оператора его же клиентов.
+    """
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from tests.factories import PickupPointFactory
+
+    his = PickupPointFactory(cargo=cargo)
+    other = PickupPointFactory(cargo=cargo)
+    mine = UserFactory(cargo=cargo, pickup_point=his)
+    stranger = UserFactory(cargo=cargo, pickup_point=other)
+    op = UserFactory(cargo=cargo, is_staff=True, pickup_point=his, allowed_tabs=["clients"])
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(op).access_token}")
+
+    ids = [c["id"] for c in _items(api_client.get(f"/api/manage/clients/?pickup_point={other.id}"))]
+
+    assert mine.id in ids
+    assert stranger.id not in ids
+
+
+@pytest.mark.django_db
+def test_clients_ignore_garbage_pickup_param(cargo_admin_client):
+    """Мусор в параметре не должен ронять список."""
+    cargo = cargo_admin_client.user.cargo
+    mine = UserFactory(cargo=cargo)
+
+    r = cargo_admin_client.get("/api/manage/clients/?pickup_point=abc")
+
+    assert r.status_code == 200
+    assert mine.id in [c["id"] for c in _items(r)]
+
+
+@pytest.mark.django_db
 def test_operator_without_clients_tab_forbidden(api_client, cargo):
     from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -87,3 +141,56 @@ def test_delivery_requests_scoped_to_cargo(cargo_admin_client):
     ids = [x["id"] for x in _items(r)]
     assert mine.id in ids
     assert len(ids) == 1
+
+
+@pytest.mark.django_db
+def test_city_delivery_filtered_by_pickup_switcher(cargo_admin_client):
+    """Заявки на доставку тоже должны сужаться переключателем ПВЗ."""
+    from tests.factories import PickupPointFactory
+
+    cargo = cargo_admin_client.user.cargo
+    here = PickupPointFactory(cargo=cargo)
+    there = PickupPointFactory(cargo=cargo)
+    mine = CityDeliveryRequestFactory(user=UserFactory(cargo=cargo, pickup_point=here))
+    theirs = CityDeliveryRequestFactory(user=UserFactory(cargo=cargo, pickup_point=there))
+
+    r = cargo_admin_client.get(f"/api/manage/city-delivery/?pickup_point={here.id}")
+
+    ids = [x["id"] for x in _items(r)]
+    assert mine.id in ids
+    assert theirs.id not in ids
+
+
+@pytest.mark.django_db
+def test_history_filtered_by_pickup_switcher(cargo_admin_client):
+    from tests.factories import PickupPointFactory
+
+    cargo = cargo_admin_client.user.cargo
+    here = PickupPointFactory(cargo=cargo)
+    there = PickupPointFactory(cargo=cargo)
+    mine = ParcelFactory(cargo=cargo, pickup_point=here, status="at_pickup_point")
+    theirs = ParcelFactory(cargo=cargo, pickup_point=there, status="at_pickup_point")
+
+    r = cargo_admin_client.get(f"/api/history/?pickup_point={here.id}")
+
+    tracks = [x["track_number"] for x in _items(r)]
+    assert mine.track_number in tracks
+    assert theirs.track_number not in tracks
+
+
+@pytest.mark.django_db
+def test_history_keeps_operations_before_pickup_is_stamped(cargo_admin_client):
+    """До приёмки ПВЗ у посылки пуст — берём пункт клиента, иначе операция
+    выпала бы из истории своего же ПВЗ."""
+    from tests.factories import PickupPointFactory
+
+    cargo = cargo_admin_client.user.cargo
+    point = PickupPointFactory(cargo=cargo)
+    client = UserFactory(cargo=cargo, pickup_point=point)
+    parcel = ParcelFactory(
+        cargo=cargo, user=client, pickup_point=None, status="arrived_china_warehouse"
+    )
+
+    r = cargo_admin_client.get(f"/api/history/?pickup_point={point.id}")
+
+    assert parcel.track_number in [x["track_number"] for x in _items(r)]

@@ -7,7 +7,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
-from common.cargo_scoping import bound_pickup_id, filter_owned_queryset, get_request_cargo_id
+from common.cargo_scoping import (
+    bound_pickup_id,
+    filter_owned_queryset,
+    get_request_cargo_id,
+    switcher_pickup_id,
+)
 from common.permissions import IsCargoManager, IsOwnerOrStaff
 
 from .filters import ParcelFilter
@@ -261,6 +266,16 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
             # Сотрудник (в т.ч. оператор Китая): только свои операции, любой карго —
             # в Китае посылки часто «ничьи» (cargo=None), их не отсекаем.
             qs = qs.filter(changed_by=user)
+
+        # Переключатель ПВЗ в шапке панели. «ПВЗ приёмки, иначе ПВЗ клиента» —
+        # тот же порядок, что в фильтре посылок: до приёмки пункт у посылки
+        # ещё не проставлен, и операция иначе выпала бы из своего же ПВЗ.
+        switched = switcher_pickup_id(user, self.request.query_params.get("pickup_point"))
+        if switched:
+            qs = qs.filter(
+                Q(parcel__pickup_point_id=switched)
+                | Q(parcel__pickup_point__isnull=True, parcel__user__pickup_point_id=switched)
+            )
 
         # Тип операции.
         op_type = self.request.query_params.get("type")

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { money } from '../money';
-import { ApiError, get, patch } from '../api';
+import { ApiError, get, isPickupBound, patch } from '../api';
+import { usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
 import { fmtDate as formatDate } from '../format';
 import type { Tone } from '../status';
@@ -46,6 +47,11 @@ const D_TONE: Record<string, Tone> = {
 export default function DeliveryPage() {
   const { t, lang } = useI18n();
   const fmtDate = (iso?: string | null) => formatDate(iso, lang);
+  // Привязанный оператор ограничен своим ПВЗ на сервере — переключатель к нему
+  // не применяем (иначе чужой activeId спрячет его же заявки).
+  const { points, activeId } = usePickup();
+  const effectivePickup = isPickupBound() ? null : activeId;
+  const activePoint = points.find((p) => p.id === effectivePickup);
   const [list, setList] = useState<Request[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -53,7 +59,8 @@ export default function DeliveryPage() {
 
   function reload() {
     setLoading(true);
-    get('/api/manage/city-delivery/')
+    const qs = effectivePickup ? `?pickup_point=${effectivePickup}` : '';
+    get(`/api/manage/city-delivery/${qs}`)
       .then((d: any) => setList((d?.results ?? d) as Request[]))
       .catch((e) => {
         setErr((e as ApiError).message);
@@ -64,7 +71,8 @@ export default function DeliveryPage() {
 
   useEffect(() => {
     reload();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePickup]);
 
   async function changeStatus(id: number, status: string) {
     setErr('');
@@ -126,7 +134,17 @@ export default function DeliveryPage() {
 
   return (
     <div>
-      <PageHeader title={t('delivery.title')} subtitle={t('delivery.subtitle')} />
+      <PageHeader
+        title={t('delivery.title')}
+        subtitle={
+          <>
+            {t('delivery.subtitle')}
+            {activePoint && (
+              <> · {t('wh.pvz')}: <b>{activePoint.title}</b> ({t('wh.pvzHint')})</>
+            )}
+          </>
+        }
+      />
 
       {msg && <Alert variant="success">{msg}</Alert>}
 

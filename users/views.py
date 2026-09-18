@@ -14,7 +14,7 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from common.audit import log_audit
-from common.cargo_scoping import bound_pickup_id, get_request_cargo_id
+from common.cargo_scoping import bound_pickup_id, get_request_cargo_id, switcher_pickup_id
 from common.models import AuditLog
 from common.permissions import HasTabAccess, IsCargoManager
 from common.throttling import AuthRateThrottle, SmsRateThrottle
@@ -492,6 +492,11 @@ class ManagedClientViewSet(GenericViewSet):
                 | Q(phone__icontains=search)
                 | Q(client_code__icontains=search)
             )
+        # Переключатель ПВЗ в шапке панели.
+        pickup = switcher_pickup_id(request.user, request.query_params.get("pickup_point"))
+        if pickup:
+            qs = qs.filter(pickup_point_id=pickup)
+
         page = self.paginate_queryset(qs)
         data = ClientListSerializer(page if page is not None else qs, many=True).data
         if page is not None:

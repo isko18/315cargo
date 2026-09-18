@@ -9,6 +9,7 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from common.cargo_scoping import (
     bound_pickup_id,
+    switcher_pickup_id,
     filter_owned_queryset,
     get_request_cargo_id,
 )
@@ -122,6 +123,12 @@ class ManagedCityDeliveryRequestViewSet(ModelViewSet):
         pickup_id = bound_pickup_id(self.request.user)
         if pickup_id:
             qs = qs.filter(user__pickup_point_id=pickup_id)
+        # Переключатель ПВЗ в шапке панели: заявка принадлежит пункту клиента.
+        switched = switcher_pickup_id(
+            self.request.user, self.request.query_params.get("pickup_point")
+        )
+        if switched:
+            qs = qs.filter(user__pickup_point_id=switched)
         return qs.order_by("-created_at")
 
     def perform_update(self, serializer):

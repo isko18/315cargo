@@ -30,6 +30,22 @@ def bound_pickup_id(user):
     return None
 
 
+def switcher_pickup_id(user, raw):
+    """ПВЗ из переключателя в шапке панели — или None.
+
+    Переключатель только сужает выборку менеджера. Привязанному оператору
+    скоуп уже задан его пунктом, и чужой ``activeId`` из localStorage спрятал
+    бы от него его же данные, поэтому у него параметр игнорируется.
+
+    Мусор в параметре тоже даёт None: лишний повод уронить список ошибкой
+    валидации ни к чему.
+    """
+    if bound_pickup_id(user):
+        return None
+    raw = (raw or "").strip()
+    return int(raw) if raw.isdigit() else None
+
+
 def filter_queryset_by_cargo(queryset, user, lookup="cargo"):
     cargo_id = get_request_cargo_id(user)
     if cargo_id:

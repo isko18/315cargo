@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { money } from '../money';
-import { ApiError, get, getRole, post } from '../api';
+import { ApiError, get, getRole, isPickupBound, post } from '../api';
+import { usePickup } from '../pickupContext';
 import { useI18n } from '../i18n';
 import { fmtShortDateTime } from '../format';
 import { IconHistory, IconSearch } from './Icons';
@@ -61,6 +62,10 @@ export default function OperationHistory({
   const fmt = (iso: string) => fmtShortDateTime(iso, lang);
   const role = getRole();
   const isManager = Boolean(role.is_superuser || role.is_cargo_admin);
+  // Привязанный оператор ограничен своим ПВЗ на сервере — переключатель к нему
+  // не применяем (иначе чужой activeId спрячет его же операции).
+  const { activeId } = usePickup();
+  const effectivePickup = isPickupBound() ? null : activeId;
 
   const [rows, setRows] = useState<Op[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +99,7 @@ export default function OperationHistory({
     if (dateFrom) p.set('date_from', dateFrom);
     if (dateTo) p.set('date_to', dateTo);
     if (operator) p.set('operator', operator);
+    if (effectivePickup) p.set('pickup_point', String(effectivePickup));
     p.set('limit', String(PAGE_SIZE));
     return p;
   }
@@ -121,7 +127,7 @@ export default function OperationHistory({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, reloadSignal, debounced, dateFrom, dateTo, operator]);
+  }, [type, reloadSignal, debounced, dateFrom, dateTo, operator, effectivePickup]);
 
   /** Догружает следующую страницу, не сбрасывая уже показанное. */
   async function loadMore() {
