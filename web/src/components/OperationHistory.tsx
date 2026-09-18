@@ -219,9 +219,11 @@ export default function OperationHistory({
     {
       key: 'product',
       header: t('op.product'),
+      mobile: 'title',
+      // На телефоне это заголовок карточки — прочерк оставлял её без шапки.
       render: (r) => (
         <span className="truncate" style={{ maxWidth: 170, display: 'inline-block' }}>
-          {r.product_title || '—'}
+          {r.product_title || r.track_number}
         </span>
       ),
     },

@@ -704,6 +704,44 @@ td .num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .cell-product { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .mono { font-variant-numeric: tabular-nums; letter-spacing: .3px; }
 
+/* Фильтры под кнопкой на телефоне. На широком экране кнопки нет вовсе:
+   панель всегда открыта, прятать нечего. */
+.filter-panel-toggle { display: none; }
+
+@media (max-width: 720px) {
+  .filter-panel-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    /* Палец, а не курсор: ряд во всю ширину карточки. */
+    min-height: 48px;
+    padding: 0 16px;
+    background: none;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .filter-panel-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: var(--radius);
+  }
+  .filter-panel-caret {
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+    transform: rotate(45deg) translate(-2px, -2px);
+    transition: transform 0.15s ease;
+  }
+  .filter-panel-caret.open { transform: rotate(-135deg) translate(-2px, -2px); }
+  .filter-panel .card-body.is-collapsed { display: none; }
+  .filter-panel .card-body { padding-top: 0; }
+}
+
 /* Таблица → карточки на узких экранах. Роли выставляет DataTable явно,
    поэтому смена display не ломает семантику для скринридеров. */
 @media (max-width: 720px) {
@@ -891,7 +929,12 @@ td .num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .chart { padding: 4px 2px; }
 .chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .chart-head .cmax { margin-left: auto; color: var(--text-faint); font-size: var(--fs-xs); }
-.chart-plot { position: relative; height: 200px; display: flex; align-items: flex-end; gap: 3px; padding-top: 6px; border-bottom: 1px solid var(--border); }
+/* Столбики не ужимаются ниже ~40px, и на телефоне 30 дней растягивали не
+   карточку, а всю страницу — она ехала вбок на 1300px. Прокрутка внутри
+   графика: 30 семипиксельных полосок всё равно не прочитать.
+   overscroll-behavior не даёт свайпу по графику увести браузер «назад». */
+.chart-plot { position: relative; height: 200px; display: flex; align-items: flex-end; gap: 3px; padding-top: 6px; border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.chart-col { scroll-snap-align: end; }
 .chart-grid { position: absolute; inset: 0 0 0 0; pointer-events: none; }
 .chart-grid span { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border); }
 .chart-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; cursor: pointer; }
@@ -1202,8 +1245,21 @@ tr.clickable:focus-visible {
   .row > button { width: 100%; padding: 13px 16px; font-size: 16px; }
 
   .toolbar { gap: 10px; }
-  .seg { width: 100%; }
-  .seg button { flex: 1; }
+  /* min-width:0 обязателен: .seg — inline-flex внутри flex-тулбара, и без
+     него он держит ширину по содержимому. Пять кнопок периода на «Аналитике»
+     так уезжали за экран и тянули вбок всю страницу.
+     Не ужимаем подписи, а прокручиваем: «30 дней», обрезанное до «30…»,
+     фильтром быть перестаёт. */
+  .seg {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { flex: 1 0 auto; white-space: nowrap; }
 
   /* Сводка: две плитки в ряд вместо одной — иначе до таблицы четыре экрана. */
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

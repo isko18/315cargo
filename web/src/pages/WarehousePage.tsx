@@ -22,6 +22,7 @@ import {
   DataTable,
   EmptyState,
   Field,
+  FilterPanel,
   formError,
   Input,
   PageHeader,
@@ -123,6 +124,11 @@ export default function WarehousePage() {
   }, [list]);
 
   const hasFilters = Boolean(debounced || status || pending || scope !== 'active' || dateFrom || dateTo);
+  // Сколько фильтров стоит — число на свёрнутой панели: иначе короткий
+  // список на телефоне выглядит как пропавшие данные.
+  const activeFilters = [debounced, status, pending, scope !== 'active', dateFrom, dateTo].filter(
+    Boolean
+  ).length;
 
   function reset() {
     setSearch('');
@@ -207,8 +213,11 @@ export default function WarehousePage() {
               <IconBox size={20} />
             </span>
           )}
+          {/* У посылки со сканера заказа нет, и названия тоже. На телефоне
+              эта ячейка — заголовок карточки, и прочерк оставлял карточку
+              без шапки: подписываем треком. */}
           <span className="strong truncate" style={{ maxWidth: 200 }}>
-            {p.product_title || '—'}
+            {p.product_title || p.track_number}
           </span>
         </div>
       ),
@@ -302,8 +311,7 @@ export default function WarehousePage() {
         <Stat icon={<IconRevenue size={19} />} tone="green" label={t('wh.statValue')} value={money(summary.value)} />
       </StatGrid>
 
-      <Card>
-        <CardBody>
+      <FilterPanel label={t('wh.filters')} activeCount={activeFilters}>
           <div className="row">
             <Field label={t('wh.search')} style={{ flex: 3 }}>
               <Input
@@ -356,8 +364,7 @@ export default function WarehousePage() {
               </Button>
             )}
           </div>
-        </CardBody>
-      </Card>
+      </FilterPanel>
 
       <Card>
         <CardHeader

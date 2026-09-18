@@ -220,6 +220,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     // Склад
     'wh.title': 'Склад карго',
     'wh.subtitle': 'Все посылки вашего карго-центра. Фильтруйте по статусу, ищите по треку/коду/товару и открывайте детали.',
+    'wh.filters': 'Фильтры',
     'wh.pvz': 'ПВЗ',
     'wh.pvzHint': 'переключается в шапке',
     'wh.statParcels': 'Посылок',
@@ -841,6 +842,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     // 仓库
     'wh.title': '货运仓库',
     'wh.subtitle': '您货运中心的所有包裹。可按状态筛选、按运单号/客户码/商品搜索并查看详情。',
+    'wh.filters': '筛选',
     'wh.pvz': '自提点',
     'wh.pvzHint': '在顶栏切换',
     'wh.statParcels': '包裹',

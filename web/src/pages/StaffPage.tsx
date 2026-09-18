@@ -188,6 +188,7 @@ export default function StaffPage() {
     {
       key: 'staff',
       header: t('staff.colStaff'),
+      mobile: 'title',
       sortValue: (s) => s.full_name || s.phone,
       render: (s) => (
         <div>
@@ -196,7 +197,7 @@ export default function StaffPage() {
         </div>
       ),
     },
-    { key: 'cargo', header: t('common.cargo'), render: (s) => s.cargo_title || '—' },
+    { key: 'cargo', header: t('common.cargo'), mobile: 'hide', render: (s) => s.cargo_title || '—' },
     { key: 'pickup', header: t('wh.pvz'), render: (s) => <span style={{ fontSize: 13 }}>{s.pickup_point_title || '—'}</span> },
     {
       key: 'role',

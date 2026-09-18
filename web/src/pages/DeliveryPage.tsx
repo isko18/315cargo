@@ -90,6 +90,7 @@ export default function DeliveryPage() {
     {
       key: 'client',
       header: t('common.client'),
+      mobile: 'title',
       sortValue: (r) => r.client_name ?? '',
       render: (r) => (
         <div>
@@ -111,7 +112,7 @@ export default function DeliveryPage() {
       ),
     },
     { key: 'price', header: t('op.price'), align: 'right', sortValue: (r) => parseFloat(r.price || '0'), render: (r) => <span className="num">{money(r.price)}</span> },
-    { key: 'created', header: t('wh.created'), align: 'right', sortValue: (r) => r.created_at, render: (r) => <span className="num">{fmtDate(r.created_at)}</span> },
+    { key: 'created', header: t('wh.created'), align: 'right', mobile: 'hide', sortValue: (r) => r.created_at, render: (r) => <span className="num">{fmtDate(r.created_at)}</span> },
     {
       key: 'status',
       header: t('common.status'),

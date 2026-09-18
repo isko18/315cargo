@@ -39,6 +39,18 @@ export function CardHeader({
   );
 }
 
-export function CardBody({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`card-body ${className}`}>{children}</div>;
+export function CardBody({
+  children,
+  className = '',
+  id,
+}: {
+  children: ReactNode;
+  className?: string;
+  id?: string;
+}) {
+  return (
+    <div className={`card-body ${className}`} id={id}>
+      {children}
+    </div>
+  );
 }

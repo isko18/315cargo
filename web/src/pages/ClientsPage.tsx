@@ -103,6 +103,7 @@ export default function ClientsPage() {
     {
       key: 'client',
       header: t('common.client'),
+      mobile: 'title',
       sortValue: (c) => c.full_name || c.phone,
       render: (c) => (
         <div>
