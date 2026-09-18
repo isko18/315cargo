@@ -30,12 +30,14 @@ from integrations.views import (
     Shop1688IntegrationViewSet,
     TaobaoIntegrationViewSet,
 )
+from notifications.manage_views import ManagedNotificationViewSet
 from notifications.views import (
     DeviceTokenViewSet,
     NotificationPreferenceAPIView,
     NotificationViewSet,
 )
 from orders.views import OrderViewSet
+from parcels.manage_views import ManagedParcelViewSet
 from parcels.views import OperationHistoryViewSet, ParcelViewSet
 from pickup_points.views import ManagedPickupPointViewSet, PickupPointViewSet
 from shops.views import ShopViewSet
@@ -66,6 +68,10 @@ router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename=
 router.register("integrations/taobao", TaobaoIntegrationViewSet, basename="taobao")
 router.register("integrations/1688", Shop1688IntegrationViewSet, basename="shop1688")
 router.register("manage/staff", ManagedStaffViewSet, basename="manage-staff")
+router.register("manage/parcels", ManagedParcelViewSet, basename="manage-parcels")
+router.register(
+    "manage/notifications", ManagedNotificationViewSet, basename="manage-notifications"
+)
 router.register("manage/clients", ManagedClientViewSet, basename="manage-clients")
 router.register(
     "manage/city-delivery", ManagedCityDeliveryRequestViewSet, basename="manage-city-delivery"

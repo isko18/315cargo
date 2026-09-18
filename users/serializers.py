@@ -246,6 +246,15 @@ class ClientListSerializer(serializers.ModelSerializer):
     )
     orders_count = serializers.IntegerField(read_only=True)
     parcels_count = serializers.IntegerField(read_only=True)
+    # Переключатель пушей из карточки клиента. Настройка живёт отдельной
+    # моделью, у старых клиентов её может не быть — тогда считаем, что
+    # разрешено (в самой модели default=True).
+    push_enabled = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_push_enabled(self, obj):
+        pref = getattr(obj, "notification_preference", None)
+        return True if pref is None else pref.push_enabled
 
     class Meta:
         model = User
@@ -258,6 +267,7 @@ class ClientListSerializer(serializers.ModelSerializer):
             "pickup_point_title",
             "orders_count",
             "parcels_count",
+            "push_enabled",
             "created_at",
         )
 
