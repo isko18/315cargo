@@ -190,7 +190,7 @@ def test_parcel_source_and_filter(auth_client):
         format="json",
     )
 
-    rows = auth_client.get("/api/parcels/?source=1688").data["results"]
+    rows = auth_client.get("/api/parcels/?source=1688").data
     assert {r["track_number"] for r in rows} == {"TRACK-1688-F"}
     assert rows[0]["source"] == "1688"
     assert rows[0]["source_display_name"] == "1688"
