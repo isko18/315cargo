@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -24,6 +24,7 @@ from .serializers import (
     AdminCreateCargoSerializer,
     AdminOverviewSerializer,
     CargoCompanySerializer,
+    CargoDashboardSerializer,
     MyCargoSerializer,
 )
 
@@ -39,7 +40,9 @@ class CargoCompanyViewSet(ReadOnlyModelViewSet):
 
     def get_queryset(self):
         active_points = PickupPoint.objects.filter(is_active=True).order_by("title")
-        return CargoCompany.objects.filter(is_active=True).prefetch_related(
+        # is_listed, а не is_active: тестовое карго должно работать (вход,
+        # сканы, панель), но не попадаться клиенту в списке при регистрации.
+        return CargoCompany.objects.filter(is_active=True, is_listed=True).prefetch_related(
             Prefetch("pickup_points", queryset=active_points)
         )
 
@@ -87,6 +90,9 @@ class CargoDashboardAPIView(APIView):
 
     permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
     required_tab = "analytics"
+    # Схема: без него drf-spectacular не угадывает сериализатор у APIView и
+    # отдаёт «200: No response body» — мобильная панель читала ключи вслепую.
+    serializer_class = CargoDashboardSerializer
 
     def _resolve_range(self, request):
         """Вернуть (from_date, to_date, key) — границы включительно (date)."""
@@ -115,6 +121,31 @@ class CargoDashboardAPIView(APIView):
         key = key if key in PERIOD_DAYS else "30d"
         return today - timedelta(days=days - 1), today, key
 
+    @extend_schema(
+        tags=["manage"],
+        responses={200: CargoDashboardSerializer},
+        parameters=[
+            OpenApiParameter(
+                "period",
+                str,
+                description="today | 7d | 30d | 90d | 365d | all. По умолчанию 30d.",
+            ),
+            OpenApiParameter(
+                "from", str, description="Начало диапазона YYYY-MM-DD. Перекрывает period."
+            ),
+            OpenApiParameter(
+                "to", str, description="Конец диапазона YYYY-MM-DD. Перекрывает period."
+            ),
+            OpenApiParameter(
+                "pickup_point",
+                int,
+                description=(
+                    "Считать только по клиентам этого ПВЗ. У привязанного к ПВЗ "
+                    "оператора игнорируется — его пункт задан жёстко."
+                ),
+            ),
+        ],
+    )
     def get(self, request):
         cargo = getattr(request.user, "cargo", None)
         if cargo is None:
@@ -248,7 +279,12 @@ class CargoDashboardAPIView(APIView):
             "by_pickup": by_pickup,
             # Снимок «всё время»
             "parcels_by_status": parcels_by_status,
+            # Те же цифры под именами, которых ждёт мобильная панель. Дубль,
+            # а не переименование: на старых ключах живёт веб-панель, и
+            # переименование молча погасило бы у неё две плитки.
+            "by_status": parcels_by_status,
             "users_count": users_qs.count(),
+            "clients_count": users_qs.count(),
             "pickup_points_count": PickupPoint.objects.filter(cargo_id=cargo.id).count(),
             "orders_count": Order.objects.filter(user__in=users_qs).count()
             if pickup_id

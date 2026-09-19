@@ -7,13 +7,13 @@ from .models import CargoCompany
 
 @admin.register(CargoCompany)
 class CargoCompanyAdmin(admin.ModelAdmin):
-    list_display = ("title", "slug", "code", "phone", "is_active", "created_at")
-    list_filter = ("is_active",)
+    list_display = ("title", "slug", "code", "phone", "is_active", "is_listed", "created_at")
+    list_filter = ("is_active", "is_listed")
     search_fields = ("title", "slug", "code", "recipient_name", "phone", "address")
     prepopulated_fields = {"slug": ("title",)}
     readonly_fields = ("created_at", "updated_at", "client_code_seq")
     fieldsets = (
-        (None, {"fields": ("title", "slug", "code", "recipient_name", "address_suffix", "description", "logo", "is_active")}),
+        (None, {"fields": ("title", "slug", "code", "recipient_name", "address_suffix", "description", "logo", "is_active", "is_listed")}),
         ("Коды клиентов", {"fields": ("client_code_prefix", "client_code_seq")}),
         ("Контакты", {"fields": ("phone", "address")}),
         ("Даты", {"fields": ("created_at", "updated_at")}),

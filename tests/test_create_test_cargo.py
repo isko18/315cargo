@@ -41,11 +41,36 @@ def test_creates_cargo_points_staff_and_parcels():
 
 
 @pytest.mark.django_db
-def test_cargo_is_hidden_from_clients():
-    """Активное тестовое карго появилось бы в выборе карго в приложении."""
+def test_cargo_works_but_is_off_the_shelf():
+    """Активно (иначе оператор не пройдёт send-code), но не в списке карго."""
     run(password="x")
 
-    assert not CargoCompany.objects.get(slug="test-cargo").is_active
+    cargo = CargoCompany.objects.get(slug="test-cargo")
+    assert cargo.is_active
+    assert not cargo.is_listed
+
+
+@pytest.mark.django_db
+def test_unlisted_cargo_is_absent_from_public_list(api_client):
+    run(password="x")
+
+    slugs = [c["slug"] for c in api_client.get("/api/cargo-companies/").data]
+    assert "test-cargo" not in slugs
+
+
+@pytest.mark.django_db
+def test_test_staff_can_request_a_code(api_client):
+    """Вход по SMS требует активного карго — проверяем, что он проходит."""
+    run(password="x")
+
+    cargo = CargoCompany.objects.get(slug="test-cargo")
+    r = api_client.post(
+        "/api/auth/send-code/",
+        {"phone": STAFF_PHONE, "cargo_id": cargo.id, "purpose": "login"},
+        format="json",
+    )
+
+    assert r.status_code == 200
 
 
 @pytest.mark.django_db

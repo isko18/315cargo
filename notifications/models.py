@@ -36,6 +36,13 @@ class Notification(models.Model):
         choices=NotificationType.choices,
         default=NotificationType.SYSTEM,
     )
+    image = models.ImageField(
+        _("Картинка"),
+        upload_to="notifications/",
+        null=True,
+        blank=True,
+        help_text=_("Показывается в карточке уведомления у клиента."),
+    )
     is_read = models.BooleanField(_("Прочитано"), default=False)
     data = models.JSONField(_("Доп. данные"), default=dict, blank=True)
     created_at = models.DateTimeField(_("Создано"), auto_now_add=True)

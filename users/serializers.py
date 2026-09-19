@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from cargo.models import CargoCompany
-from common.tabs import sanitize_tabs, user_allowed_tabs
+from common.tabs import GRANTABLE_TABS, TABS, sanitize_tabs, user_allowed_tabs
 from pickup_points.models import PickupPoint
 
 from .constants import OTP_CODE_LENGTH
@@ -23,7 +23,9 @@ class UserSerializer(serializers.ModelSerializer):
     # массив, хотя оба всегда отдают список.
     allowed_tabs = serializers.SerializerMethodField()
 
-    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(t, t) for t in TABS]))
+    )
     def get_allowed_tabs(self, obj):
         # Эффективный список вкладок с учётом роли — для фильтрации меню.
         return user_allowed_tabs(obj)
@@ -174,10 +176,17 @@ class StaffSerializer(serializers.ModelSerializer):
             "если нужен вход по паролю через auth/token/."
         ),
     )
+    # Валидация остаётся мягкой (sanitize_tabs молча отбрасывает лишнее),
+    # а схема называет допустимые ключи — иначе приложению нечем резать меню.
     allowed_tabs = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Вкладки, доступные оператору (игнорируется для админа/китай-оператора).",
+        help_text=(
+            "Вкладки, доступные оператору. Допустимые значения: "
+            + ", ".join(GRANTABLE_TABS)
+            + ". Незнакомые ключи отбрасываются. Игнорируется для админа карго "
+            "(у него полный набор) и оператора склада в Китае (у него china)."
+        ),
     )
 
     class Meta:
@@ -288,6 +297,42 @@ class ClientListSerializer(serializers.ModelSerializer):
             "push_enabled",
             "created_at",
         )
+
+
+class ClientUpdateSerializer(serializers.Serializer):
+    """Что панель правит в карточке клиента.
+
+    Пока только пуши: остальное (имя, ПВЗ, код) правится в других местах и
+    тянет за собой перенумерацию — сюда не пускаем.
+    """
+
+    push_enabled = serializers.BooleanField()
+
+
+class ClientSearchResultSerializer(serializers.Serializer):
+    """Строка живого поиска клиента — намеренно короткая."""
+
+    id = serializers.IntegerField()
+    full_name = serializers.CharField(allow_blank=True)
+    phone = serializers.CharField()
+    client_code = serializers.CharField(allow_null=True)
+    pickup_point_title = serializers.CharField(allow_null=True)
+
+
+class ClientHistoryClientSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    full_name = serializers.CharField(allow_blank=True)
+    phone = serializers.CharField()
+    client_code = serializers.CharField(allow_null=True)
+    pickup_point_title = serializers.CharField(allow_null=True)
+
+
+class ClientHistorySerializer(serializers.Serializer):
+    """Ответ manage/clients/{id}/history/ — заказы и посылки одного клиента."""
+
+    client = ClientHistoryClientSerializer()
+    orders = serializers.ListField(child=serializers.DictField())
+    parcels = serializers.ListField(child=serializers.DictField())
 
 
 class PasswordLoginSerializer(serializers.Serializer):

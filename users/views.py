@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Q
-from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -22,6 +22,10 @@ from common.throttling import AuthRateThrottle, SmsRateThrottle
 from .models import User
 from .serializers import (
     AuthResponseSerializer,
+    ClientHistorySerializer,
+    ClientListSerializer,
+    ClientSearchResultSerializer,
+    ClientUpdateSerializer,
     LogoutSerializer,
     PasswordChangeSerializer,
     PasswordLoginSerializer,
@@ -415,6 +419,19 @@ class ManagedStaffViewSet(ModelViewSet):
         serializer.save()
 
 
+# Строку поиска панель слала сразу под тремя именами, потому что схема их не
+# объявляла. Принимаем все три, а в документации закреплён первый.
+SEARCH_PARAMS = ("q", "search", "query")
+
+
+def search_term(request):
+    for name in SEARCH_PARAMS:
+        value = (request.query_params.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 class ClientSearchAPIView(APIView):
     """Живой поиск клиентов для присвоения/выдачи: по имени, телефону или коду.
 
@@ -424,9 +441,24 @@ class ClientSearchAPIView(APIView):
     """
 
     permission_classes = (IsAuthenticated, IsCargoManager)
+    serializer_class = ClientSearchResultSerializer
 
+    @extend_schema(
+        tags=["manage"],
+        responses={200: ClientSearchResultSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                "q",
+                str,
+                description=(
+                    "Имя, телефон или код клиента. Принимаются также search и "
+                    "query — это синонимы. Пустой запрос отдаёт []."
+                ),
+            )
+        ],
+    )
     def get(self, request):
-        q = (request.query_params.get("q") or "").strip()
+        q = search_term(request)
         if not q:
             return Response([])
         qs = User.objects.filter(is_staff=False, is_superuser=False).select_related("pickup_point")
@@ -452,7 +484,35 @@ class ClientSearchAPIView(APIView):
         return Response(data)
 
 
-@extend_schema_view(list=extend_schema(tags=["manage"]))
+@extend_schema_view(
+    list=extend_schema(
+        tags=["manage"],
+        responses={200: ClientListSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                "search",
+                str,
+                description=(
+                    "Имя, телефон или код клиента. Принимаются также q и query."
+                ),
+            ),
+            OpenApiParameter(
+                "pickup_point",
+                int,
+                description=(
+                    "Клиенты только этого ПВЗ (переключатель в шапке). У "
+                    "привязанного к ПВЗ оператора игнорируется."
+                ),
+            ),
+            OpenApiParameter("limit", int, description="Размер страницы."),
+            OpenApiParameter("offset", int, description="Смещение страницы."),
+        ],
+    ),
+    history=extend_schema(tags=["manage"], responses={200: ClientHistorySerializer}),
+    partial_update=extend_schema(
+        tags=["manage"], request=ClientUpdateSerializer, responses={200: ClientListSerializer}
+    ),
+)
 class ManagedClientViewSet(GenericViewSet):
     """Клиенты карго в панели: список + история покупок (заказы и посылки).
 
@@ -461,6 +521,7 @@ class ManagedClientViewSet(GenericViewSet):
 
     permission_classes = (IsAuthenticated, IsCargoManager, HasTabAccess)
     required_tab = "clients"
+    serializer_class = ClientListSerializer
     queryset = User.objects.none()
 
     def get_queryset(self):
@@ -488,7 +549,7 @@ class ManagedClientViewSet(GenericViewSet):
         from .serializers import ClientListSerializer
 
         qs = self.filter_queryset(self.get_queryset())
-        search = (request.query_params.get("search") or "").strip()
+        search = search_term(request)
         if search:
             qs = qs.filter(
                 Q(full_name__icontains=search)
@@ -505,6 +566,32 @@ class ManagedClientViewSet(GenericViewSet):
         if page is not None:
             return self.get_paginated_response(data)
         return Response(data)
+
+    def partial_update(self, request, pk=None):
+        """Правка карточки клиента. Пока это только переключатель пушей.
+
+        Сам флаг живёт отдельной моделью настроек: у старых клиентов её нет,
+        поэтому получаем-или-создаём, а не обновляем вслепую.
+        """
+        from notifications.services import get_or_create_preference
+
+        client = self.get_queryset().filter(pk=pk).first()
+        if client is None:
+            return Response({"detail": "Клиент не найден"}, status=404)
+
+        serializer = ClientUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if "push_enabled" in data:
+            pref = get_or_create_preference(client)
+            pref.push_enabled = data["push_enabled"]
+            pref.save(update_fields=["push_enabled"])
+
+        # Перечитываем через queryset, а не refresh_from_db(): счётчики
+        # заказов и посылок — аннотации, и обычное обновление их теряет.
+        fresh = self.get_queryset().filter(pk=pk).first()
+        return Response(ClientListSerializer(fresh).data)
 
     @action(detail=True, methods=("get",))
     def history(self, request, pk=None):

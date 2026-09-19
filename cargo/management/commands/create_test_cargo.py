@@ -6,8 +6,9 @@ push нельзя. Ценой пустой панели мы получаем п
 ничего сломать, — поэтому команда сразу засевает ПВЗ, клиентов и посылки
 в разных статусах.
 
-Карго заводится неактивным: список карго для клиентов отдаёт только
-активные, так что в приложении песочница не появится.
+Карго активно, но снято с витрины (is_listed=False): вход по SMS-коду
+требует активного карго, а в списке при регистрации клиенту песочница
+ни к чему.
 
     manage.py create_test_cargo                    # создать/обновить
     manage.py create_test_cargo --password 'секрет'
@@ -59,6 +60,11 @@ class Command(BaseCommand):
             help="Пароль оператора. Без него генерируется и печатается один раз.",
         )
         parser.add_argument(
+            "--otp-code",
+            default="0000",
+            help="Фиксированный код для OTP_TEST_NUMBERS (по умолчанию 0000)",
+        )
+        parser.add_argument(
             "--dry-run", action="store_true", help="Показать, что будет сделано, и выйти"
         )
 
@@ -87,7 +93,17 @@ class Command(BaseCommand):
         for client in clients:
             self.stdout.write(f"  клиент {client.phone} · код {client.client_code}")
         self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS("Вход в панель (POST /api/auth/token/):"))
+        self.stdout.write(self.style.SUCCESS("Вход по SMS-коду (основной путь):"))
+        self.stdout.write(f"  телефон: {staff.phone}")
+        self.stdout.write(f"  карго:   {cargo.code} (id {cargo.id})")
+        self.stdout.write("")
+        self.stdout.write(
+            "Номер вымышленный, SMS на него не придёт. Чтобы вход работал с "
+            "фиксированным кодом, впишите в .env и перезапустите:"
+        )
+        self.stdout.write(f"  OTP_TEST_NUMBERS=...,{staff.phone}:{options['otp_code']}")
+        self.stdout.write("")
+        self.stdout.write("Запасной вход по паролю (POST /api/auth/token/):")
         self.stdout.write(f"  login:    {staff.phone}")
         self.stdout.write(f"  password: {password}")
         if not options["password"]:
@@ -102,8 +118,10 @@ class Command(BaseCommand):
                 title="Тестовое карго",
                 code="TST",
                 description="Песочница для мобильной команды. Не боевые данные.",
-                # Неактивное: список карго для клиентов отдаёт только активные.
-                is_active=False,
+                # Активно — иначе номер оператора не пройдёт send-code.
+                is_active=True,
+                # Но не на витрине: в выборе карго при регистрации не нужно.
+                is_listed=False,
                 price_per_kg_kgs=100,
                 client_code_prefix="TST",
             ),

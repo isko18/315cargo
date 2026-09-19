@@ -57,13 +57,17 @@ def _is_allowed(user, notification_type) -> bool:
     return preference.allows(notification_type)
 
 
-def create_notification(user, title, body, type=NotificationType.SYSTEM, data=None):
+def create_notification(user, title, body, type=NotificationType.SYSTEM, data=None, image=None):
     notification = Notification.objects.create(
         user=user,
         title=title,
         body=body,
         type=type,
         data=data or {},
+        # Путь к уже загруженному файлу, а не сам файл: рассылка — это N
+        # одинаковых уведомлений, и передача файла каждому сохранила бы N
+        # копий одной картинки.
+        image=image or None,
     )
     return notification
 
@@ -201,6 +205,7 @@ def notify(
     type: str = NotificationType.SYSTEM,
     data: dict | None = None,
     push: bool = True,
+    image=None,
 ) -> Notification | None:
     """Create an in-app notification and optionally send push.
 
@@ -215,7 +220,7 @@ def notify(
             extra={"user_id": user.id, "type": type},
         )
         return None
-    notification = create_notification(user, title, body, type=type, data=data)
+    notification = create_notification(user, title, body, type=type, data=data, image=image)
     if push:
         send_push_notification(user, title, body, data=data, type=type)
     return notification
@@ -228,9 +233,10 @@ def notify_many(
     type: str = NotificationType.SYSTEM,
     data: dict | None = None,
     push: bool = True,
+    image=None,
 ) -> int:
     count = 0
     for user in users:
-        if notify(user, title, body, type=type, data=data, push=push) is not None:
+        if notify(user, title, body, type=type, data=data, push=push, image=image) is not None:
             count += 1
     return count

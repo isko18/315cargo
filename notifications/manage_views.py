@@ -8,9 +8,12 @@
 push — это правильно и менять не надо.
 """
 
+import posixpath
+
 from django.db import transaction
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -32,6 +35,9 @@ class BroadcastSerializer(serializers.Serializer):
         queryset=PickupPoint.objects.all(), many=True, required=False
     )
     send_push = serializers.BooleanField(default=True)
+    # multipart: картинка к уведомлению. JSON-запросы продолжают работать —
+    # поле необязательное.
+    image = serializers.ImageField(required=False, allow_null=True)
 
 
 class BroadcastListSerializer(serializers.Serializer):
@@ -42,6 +48,7 @@ class BroadcastListSerializer(serializers.Serializer):
     body = serializers.CharField()
     created_at = serializers.DateTimeField()
     recipients_count = serializers.IntegerField()
+    image = serializers.CharField(allow_null=True, required=False)
 
 
 @extend_schema_view(
@@ -54,6 +61,8 @@ class ManagedNotificationViewSet(GenericViewSet):
 
     permission_classes = (IsAuthenticated, IsCargoManager)
     serializer_class = BroadcastSerializer
+    # Картинка приходит файлом, значит форма; JSON оставляем — им шлёт панель.
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     queryset = Notification.objects.none()
 
     def _recipients(self, pickup_points=None):
@@ -88,7 +97,10 @@ class ManagedNotificationViewSet(GenericViewSet):
             # Считаем по user_id: алиас id перекрывает поле, и Count("id")
             # тогда считал бы уже агрегат.
             .annotate(
-                id=Min("id"), created_at=Min("created_at"), recipients_count=Count("user_id")
+                id=Min("id"),
+                created_at=Min("created_at"),
+                recipients_count=Count("user_id"),
+                image=Min("image"),
             )
             .order_by("-created_at")[:100]
         )
@@ -109,6 +121,20 @@ class ManagedNotificationViewSet(GenericViewSet):
                 )
 
         recipients = list(self._recipients(points))
+
+        # Файл сохраняем один раз и раздаём остальным строкам путём: рассылка —
+        # это N одинаковых уведомлений, и файл в каждом дал бы N копий картинки
+        # в хранилище.
+        image_name = None
+        upload = data.get("image")
+        if upload is not None:
+            storage = Notification.image.field.storage
+            # Путь собираем через posixpath, а не generate_filename(): тот на
+            # Windows вернёт «notifications\файл.png», и ссылка не откроется.
+            image_name = storage.save(
+                posixpath.join("notifications", storage.get_valid_name(upload.name)), upload
+            )
+
         with transaction.atomic():
             count = notify_many(
                 recipients,
@@ -116,6 +142,7 @@ class ManagedNotificationViewSet(GenericViewSet):
                 data["body"],
                 type=NotificationType.SYSTEM,
                 push=data["send_push"],
+                image=image_name,
             )
         first = (
             Notification.objects.filter(user__in=recipients, title=data["title"])

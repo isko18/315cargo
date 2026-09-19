@@ -380,3 +380,85 @@ class AdminCreateCargoSerializer(serializers.Serializer):
                 "login_key": owner.login_key if owner else None,
             },
         }
+
+
+class DashboardPeriodSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="today | 7d | 30d | 90d | 365d | all | custom")
+    from_date = serializers.DateField(source="from", allow_null=True)
+    to = serializers.DateField()
+
+
+class DashboardPointSerializer(serializers.Serializer):
+    id = serializers.IntegerField(allow_null=True)
+    title = serializers.CharField(allow_null=True)
+
+
+class DashboardCargoSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    title = serializers.CharField()
+    slug = serializers.CharField()
+
+
+class DashboardSeriesPointSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    count = serializers.IntegerField()
+    revenue = serializers.FloatField()
+
+
+class DashboardTopClientSerializer(serializers.Serializer):
+    client_code = serializers.CharField()
+    full_name = serializers.CharField(allow_blank=True)
+    count = serializers.IntegerField()
+    revenue = serializers.FloatField()
+
+
+class DashboardByPickupSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    count = serializers.IntegerField()
+    revenue = serializers.FloatField()
+
+
+class CargoDashboardSerializer(serializers.Serializer):
+    """Ответ manage/dashboard/.
+
+    Раньше схема отдавала «200: No response body», и мобильная панель читала
+    ключи, угаданные по скриншоту. Переименование любого из них молча гасит
+    плитку на экране — поэтому список зафиксирован здесь.
+    """
+
+    cargo = DashboardCargoSerializer()
+    price_per_kg_kgs = serializers.FloatField()
+    pickup = DashboardPointSerializer()
+    period = DashboardPeriodSerializer()
+
+    # KPI за выбранный период
+    period_issued_count = serializers.IntegerField()
+    period_received_count = serializers.IntegerField()
+    period_revenue_kgs = serializers.FloatField()
+    period_weight_kg = serializers.FloatField()
+    period_avg_check_kgs = serializers.FloatField()
+    period_avg_weight_kg = serializers.FloatField()
+
+    timeseries = DashboardSeriesPointSerializer(many=True)
+    top_clients = DashboardTopClientSerializer(many=True)
+    by_pickup = DashboardByPickupSerializer(many=True)
+
+    # Снимок «всё время»
+    parcels_count = serializers.IntegerField()
+    parcels_pending_count = serializers.IntegerField(help_text="Сканы без клиента.")
+    issued_count = serializers.IntegerField()
+    issued_revenue_kgs = serializers.FloatField()
+    issued_weight_kg = serializers.FloatField()
+    total_weight_kg = serializers.FloatField()
+    potential_revenue_kgs = serializers.FloatField(
+        help_text="Стоимость доставки всех посылок, а не только выданных."
+    )
+    orders_count = serializers.IntegerField()
+    pickup_points_count = serializers.IntegerField()
+
+    # Пары ключей-синонимов: слева историческое имя (его читает веб-панель),
+    # справа то, что уже читает мобильная. Значения одинаковые.
+    parcels_by_status = serializers.DictField(child=serializers.IntegerField())
+    by_status = serializers.DictField(child=serializers.IntegerField())
+    users_count = serializers.IntegerField()
+    clients_count = serializers.IntegerField()

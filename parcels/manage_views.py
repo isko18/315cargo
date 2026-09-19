@@ -115,12 +115,58 @@ class BulkStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Parcel.Status.choices)
 
 
+class BulkScanErrorSerializer(serializers.Serializer):
+    """Строка накладной, которая не прошла."""
+
+    index = serializers.IntegerField(help_text="Позиция строки в присланном items.")
+    track_number = serializers.CharField(allow_blank=True)
+    error = serializers.CharField()
+
+
+class BulkScanResultSerializer(serializers.Serializer):
+    """Ответ bulk-scan/.
+
+    Схема нужна не для красоты: без неё приложение, не найдя errors, считало
+    успешными все отправленные строки — и оператор не узнавал, что половина
+    накладной не прошла.
+    """
+
+    created = serializers.IntegerField(help_text="Сколько посылок заведено впервые.")
+    updated = serializers.IntegerField(help_text="Сколько уже существовало и обновлено.")
+    errors = BulkScanErrorSerializer(many=True)
+
+
+class BulkStatusErrorSerializer(serializers.Serializer):
+    index = serializers.IntegerField(help_text="Позиция id в присланном ids.")
+    id = serializers.IntegerField()
+    error = serializers.CharField()
+
+
+class BulkStatusResultSerializer(serializers.Serializer):
+    """Ответ bulk-status/.
+
+    updated считает только реально изменённые: посылка, уже стоявшая в этом
+    статусе, не попадает ни в updated, ни в errors.
+    """
+
+    updated = serializers.IntegerField()
+    errors = BulkStatusErrorSerializer(many=True)
+
+
 @extend_schema_view(
     partial_update=extend_schema(
         tags=["manage"], request=ParcelUpdateSerializer, responses=ParcelSerializer
     ),
-    bulk_scan=extend_schema(tags=["manage"], request=BulkScanSerializer, responses={200: dict}),
-    bulk_status=extend_schema(tags=["manage"], request=BulkStatusSerializer, responses={200: dict}),
+    bulk_scan=extend_schema(
+        tags=["manage"],
+        request=BulkScanSerializer,
+        responses={200: BulkScanResultSerializer},
+    ),
+    bulk_status=extend_schema(
+        tags=["manage"],
+        request=BulkStatusSerializer,
+        responses={200: BulkStatusResultSerializer},
+    ),
 )
 class ManagedParcelViewSet(GenericViewSet):
     """Правка посылок сотрудником: одиночная и пачкой."""

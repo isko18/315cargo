@@ -69,6 +69,14 @@ class CargoCompany(models.Model):
         help_text=_("Номер последнего выданного клиентского кода этого карго."),
     )
     is_active = models.BooleanField(_("Активен"), default=True)
+    is_listed = models.BooleanField(
+        _("Показывать клиентам"),
+        default=True,
+        help_text=_(
+            "Снимите, чтобы карго не появлялось в выборе при регистрации. "
+            "Вход и работа продолжают действовать — так живёт тестовое карго."
+        ),
+    )
     created_at = models.DateTimeField(_("Создан"), auto_now_add=True)
     updated_at = models.DateTimeField(_("Обновлён"), auto_now=True)
 

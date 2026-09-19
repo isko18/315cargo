@@ -14,6 +14,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "body",
             "type",
             "type_display_name",
+            "image",
             "is_read",
             "data",
             "created_at",
@@ -24,6 +25,7 @@ class NotificationSerializer(serializers.ModelSerializer):
             "body",
             "type",
             "type_display_name",
+            "image",
             "data",
             "created_at",
         )
