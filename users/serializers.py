@@ -90,7 +90,12 @@ class SendCodeSerializer(serializers.Serializer):
         phone = attrs["phone"]
         purpose = attrs.get("purpose", SMSCode.Purpose.LOGIN)
         if purpose == SMSCode.Purpose.LOGIN:
-            if not User.objects.filter(phone=phone, cargo=cargo).exists():
+            known = User.objects.filter(phone=phone, cargo=cargo).exists()
+            # Супер-владелец может быть вообще без карго, а экран входа
+            # начинается с кода карго — без этой ветки он не запросит код.
+            if not known:
+                known = User.objects.filter(phone=phone, is_superuser=True).exists()
+            if not known:
                 raise serializers.ValidationError(
                     {"phone": "Пользователь не найден в этом карго-центре. Зарегистрируйтесь."}
                 )
@@ -159,7 +164,15 @@ class StaffSerializer(serializers.ModelSerializer):
         source="pickup_point.title", read_only=True, default=None
     )
     password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}, min_length=6
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={"input_type": "password"},
+        min_length=6,
+        help_text=(
+            "Необязателен: сотрудники входят по SMS-коду. Задавайте, только "
+            "если нужен вход по паролю через auth/token/."
+        ),
     )
     allowed_tabs = serializers.ListField(
         child=serializers.CharField(),
@@ -206,10 +219,15 @@ class StaffSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        password = validated_data.pop("password")
+        password = validated_data.pop("password", None)
         validated_data["is_staff"] = True
         user = User(**validated_data)
-        user.set_password(password)
+        if password:
+            user.set_password(password)
+        else:
+            # Вход только по SMS-коду. Непригодный пароль, а не пустой:
+            # пустой прошёл бы проверку в auth/token/.
+            user.set_unusable_password()
         user.save()
         return user
 

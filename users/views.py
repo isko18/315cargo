@@ -37,6 +37,7 @@ from .services import (
     check_sms_code,
     issue_tokens_for_user,
     send_sms_code,
+    resolve_otp_user,
     verify_sms_code,
 )
 
@@ -115,10 +116,11 @@ class AuthViewSet(GenericViewSet):
 
         # Тем же ответом говорим, что показывать дальше: анкету или сразу вход.
         # Иначе приложение узнало бы об этом только из ошибки verify-code.
-        exists = User.objects.filter(
-            phone=data["phone"], is_staff=False, is_superuser=False
-        ).exists()
-        return Response({"valid": True, "is_new_user": not exists})
+        # Резолвер тот же, что в verify-code: раньше здесь искали только
+        # клиентов, и сотрудник получал is_new_user=true — приложение вело его
+        # на анкету ПВЗ и заводило клиентский дубль поверх служебного аккаунта.
+        resolved = resolve_otp_user(data["phone"], data["cargo"])
+        return Response({"valid": True, "is_new_user": resolved is None})
 
     @extend_schema(request=VerifyCodeSerializer, responses={200: AuthResponseSerializer})
     @action(
@@ -133,13 +135,9 @@ class AuthViewSet(GenericViewSet):
         data = serializer.validated_data
         verify_sms_code(data["phone"], data["code"], cargo=data["cargo"])
 
-        # Один аккаунт-клиент на номер глобально: если клиент с этим номером уже
-        # есть (в любом карго) — это вход в него, а не создание дубля.
-        user = (
-            User.objects.filter(phone=data["phone"], is_staff=False, is_superuser=False)
-            .order_by("id")
-            .first()
-        )
+        # Служебный аккаунт этого карго, супер-владелец или клиент — см.
+        # resolve_otp_user(). Тот же порядок, что и в check-code.
+        user = resolve_otp_user(data["phone"], data["cargo"])
         is_new_user = user is None
 
         if is_new_user and (not data.get("pickup_point") or not data.get("full_name")):
@@ -163,7 +161,12 @@ class AuthViewSet(GenericViewSet):
             except IntegrityError as exc:
                 raise ValidationError({"detail": "Этот номер уже используется"}) from exc
 
+        # Анкету применяем только к клиентам: у сотрудника ПВЗ — это его место
+        # работы, и переписать его данными с экрана регистрации значило бы
+        # молча перевести оператора в другой пункт.
         update_fields = []
+        if user.is_staff or user.is_superuser:
+            data = {k: v for k, v in data.items() if k not in ("pickup_point", "full_name")}
         if data.get("pickup_point"):
             user.pickup_point = data["pickup_point"]
             update_fields.append("pickup_point")

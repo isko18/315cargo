@@ -264,6 +264,48 @@ def _check_code(phone, code, cargo, *, consume):
     return sms_code
 
 
+def resolve_otp_user(phone, cargo):
+    """Чей это номер — или None, если такого пользователя ещё нет.
+
+    Один резолвер на check-code и verify-code намеренно: если они разойдутся,
+    приложение получит is_new_user=true и уведёт существующего сотрудника на
+    анкету регистрации, заведя ему клиентский дубль поверх служебного аккаунта.
+
+    Порядок важен:
+
+    1. Служебный аккаунт этого карго. Сотрудник живёт внутри карго
+       (login_key = "<cargo>:<phone>"), и один номер бывает оператором карго A
+       и клиентом карго B — это разные аккаунты.
+    2. Супер-владелец по номеру, без привязки к карго: карго у него может не
+       быть вовсе, а войти он должен.
+    3. Клиент — глобально по номеру. Клиентский аккаунт на номер один на всю
+       платформу, поэтому вход в него, а не создание дубля.
+
+    Служебный аккаунт впереди клиентского: иначе оператор, который ещё и
+    клиент другого карго, попадал бы на смене в клиентскую часть.
+    """
+    from django.db.models import Q
+
+    staff = (
+        User.objects.filter(phone=phone, cargo=cargo)
+        .filter(Q(is_staff=True) | Q(is_cargo_admin=True) | Q(is_superuser=True))
+        .order_by("id")
+        .first()
+    )
+    if staff is not None:
+        return staff
+
+    superuser = User.objects.filter(phone=phone, is_superuser=True).order_by("id").first()
+    if superuser is not None:
+        return superuser
+
+    return (
+        User.objects.filter(phone=phone, is_staff=False, is_superuser=False)
+        .order_by("id")
+        .first()
+    )
+
+
 def verify_sms_code(phone, code, cargo=None):
     """Проверить код и погасить его — финальный шаг входа/регистрации."""
     return _check_code(phone, code, cargo, consume=True)
