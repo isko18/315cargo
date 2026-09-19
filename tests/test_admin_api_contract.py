@@ -225,3 +225,40 @@ def test_broadcast_list_carries_the_image(cargo_admin_client):
 
     row = next(r for r in rows if r["title"] == "В списке")
     assert row["image"]
+
+
+@pytest.mark.django_db
+def test_delete_broadcast_removes_its_image_too(cargo_admin_client, settings):
+    """Иначе картинка удалённой рассылки остаётся в хранилище навсегда."""
+    from pathlib import Path
+
+    cargo = cargo_admin_client.user.cargo
+    UserFactory(cargo=cargo)
+    created = cargo_admin_client.post(
+        "/api/manage/notifications/",
+        {"title": "С картинкой", "body": "текст", "send_push": False, "image": png_bytes()},
+        format="multipart",
+    ).data
+    name = Notification.objects.get(id=created["id"]).image.name
+    assert Path(settings.MEDIA_ROOT, name).exists()
+
+    cargo_admin_client.delete(f"/api/manage/notifications/{created['id']}/")
+
+    assert not Notification.objects.filter(title="С картинкой").exists()
+    assert not Path(settings.MEDIA_ROOT, name).exists()
+
+
+@pytest.mark.django_db
+def test_delete_broadcast_without_image_still_works(cargo_admin_client):
+    cargo = cargo_admin_client.user.cargo
+    UserFactory(cargo=cargo)
+    created = cargo_admin_client.post(
+        "/api/manage/notifications/",
+        {"title": "Без картинки", "body": "текст", "send_push": False},
+        format="json",
+    ).data
+
+    r = cargo_admin_client.delete(f"/api/manage/notifications/{created['id']}/")
+
+    assert r.status_code == 204
+    assert not Notification.objects.filter(title="Без картинки").exists()

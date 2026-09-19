@@ -160,5 +160,13 @@ class ManagedNotificationViewSet(GenericViewSet):
         target = self._sent_queryset().filter(pk=pk).first()
         if target is None:
             return Response({"detail": "Рассылка не найдена"}, status=404)
-        self._sent_queryset().filter(title=target.title, body=target.body).delete()
+
+        rows = self._sent_queryset().filter(title=target.title, body=target.body)
+        # Картинку убираем вместе с рассылкой: имя файла уникально на рассылку
+        # (storage.save разводит одноимённые), поэтому после удаления строк на
+        # неё уже никто не сошлётся, а в хранилище она осталась бы навсегда.
+        image_name = target.image.name
+        rows.delete()
+        if image_name:
+            target.image.storage.delete(image_name)
         return Response(status=204)
