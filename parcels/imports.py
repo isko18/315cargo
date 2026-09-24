@@ -111,7 +111,10 @@ def import_parcels_from_csv(file_obj: IO, encoding: str = "utf-8", cargo=None) -
             result.skipped += 1
             continue
 
-        status = (row.get("status") or Parcel.Status.CREATED).strip()
+        # Умолчание — склад в Китае, а не «Оформлен»: с него начинается
+        # авто-цепочка. С «Оформлен» посылка не двигалась бы вообще никогда,
+        # потому что этого статуса в цепочке нет.
+        status = (row.get("status") or Parcel.Status.ARRIVED_CHINA_WAREHOUSE).strip()
         if status not in valid_statuses:
             result.errors.append(
                 f"Строка {row_index}: неизвестный статус '{status}'"

@@ -12,20 +12,42 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from common.audit import log_audit
 from common.cargo_scoping import bound_pickup_id, get_request_cargo_id
+from common.models import AuditLog
 from common.permissions import IsCargoManager
 from pickup_points.models import PickupPoint
 
-from .models import Parcel
+from .importers import (
+    ImportFormatError,
+    column_letter_to_index,
+    detect_layout,
+    extract_rows,
+    read_rows,
+)
+from .models import Parcel, ParcelImport, ParcelStatusHistory
 from .serializers import ParcelSerializer
-from .services import ScanError, calc_delivery_price, scan_parcel, update_parcel_status
+from .services import (
+    ScanError,
+    apply_import_rows,
+    calc_delivery_price,
+    scan_parcel,
+    update_parcel_status,
+)
+
+# Названы для мобильной команды, чтобы приложение не давало отправить заведомо
+# неподъёмный файл. Реальные накладные — 200–500 строк и меньше мегабайта.
+IMPORT_MAX_FILE_BYTES = 10 * 1024 * 1024
+IMPORT_MAX_ROWS = 5000
 
 # Оператору склада в Китае доступны только «китайские» статусы — та же логика,
 # что уже стоит на scan/.
@@ -123,6 +145,91 @@ class BulkScanErrorSerializer(serializers.Serializer):
     error = serializers.CharField()
 
 
+class ParcelImportSerializer(serializers.Serializer):
+    """Запрос на импорт накладной файлом (multipart/form-data)."""
+
+    file = serializers.FileField(help_text=".xlsx, .xls или .csv")
+    # Импорт — точка входа посылки в систему, поэтому по умолчанию она встаёт
+    # на склад в Китае: отсюда стартует авто-цепочка статусов. Любой другой
+    # статус можно прислать явно — например когда коробку принимают в ПВЗ.
+    status = serializers.ChoiceField(
+        choices=Parcel.Status.choices,
+        required=False,
+        default=Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
+        help_text=(
+            "Статус для всех строк. По умолчанию «Прибыл на склад в Китае» — "
+            "с него начинается авто-цепочка."
+        ),
+    )
+    pickup_point = serializers.PrimaryKeyRelatedField(
+        queryset=PickupPoint.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="Не передан — берётся ПВЗ сотрудника, как в scan/.",
+    )
+    start_row = serializers.IntegerField(
+        required=False, min_value=1, help_text="Первая строка с данными, счёт с 1."
+    )
+    track_column = serializers.CharField(
+        required=False, allow_blank=True, help_text="Буква колонки в терминах Excel: A, G, AA."
+    )
+    weight_column = serializers.CharField(required=False, allow_blank=True)
+    client_code_column = serializers.CharField(required=False, allow_blank=True)
+    dry_run = serializers.BooleanField(
+        required=False, default=False, help_text="Только разобрать и проверить, не записывая."
+    )
+
+
+class ImportErrorSerializer(serializers.Serializer):
+    """Строка, которая не прошла.
+
+    ``row`` — номер строки в файле вместе с шапкой, счёт с 1: оператор идёт
+    с ним в Excel. Порядковый номер в массиве (как index у bulk-scan/) для
+    файла бесполезен.
+    """
+
+    row = serializers.IntegerField()
+    track_number = serializers.CharField(allow_blank=True)
+    error = serializers.CharField()
+
+
+class ImportDetectedSerializer(serializers.Serializer):
+    """Что распознано в файле — чтобы оператор увидел, та ли колонка взята."""
+
+    start_row = serializers.IntegerField()
+    track_column = serializers.CharField(allow_null=True)
+    weight_column = serializers.CharField(allow_null=True)
+    client_code_column = serializers.CharField(allow_null=True)
+
+
+class ImportPreviewRowSerializer(serializers.Serializer):
+    row = serializers.IntegerField()
+    track_number = serializers.CharField(allow_blank=True)
+    weight = serializers.CharField(allow_blank=True)
+    client_code = serializers.CharField(allow_blank=True)
+
+
+class ParcelImportResultSerializer(serializers.Serializer):
+    """Ответ import/.
+
+    Инвариант: created + updated + skipped + len(errors) == total_rows.
+    """
+
+    file_name = serializers.CharField()
+    total_rows = serializers.IntegerField()
+    created = serializers.IntegerField()
+    updated = serializers.IntegerField()
+    skipped = serializers.IntegerField()
+    errors = ImportErrorSerializer(many=True)
+    detected = ImportDetectedSerializer()
+    source_file = serializers.CharField(
+        required=False, help_text="Ссылка на загруженный файл. Нет при dry_run."
+    )
+    preview = ImportPreviewRowSerializer(
+        many=True, required=False, help_text="Первые 10 строк. Только при dry_run."
+    )
+
+
 class BulkScanResultSerializer(serializers.Serializer):
     """Ответ bulk-scan/.
 
@@ -166,6 +273,12 @@ class BulkStatusResultSerializer(serializers.Serializer):
         tags=["manage"],
         request=BulkStatusSerializer,
         responses={200: BulkStatusResultSerializer},
+    ),
+    import_file=extend_schema(
+        tags=["manage"],
+        request={"multipart/form-data": ParcelImportSerializer},
+        responses={200: ParcelImportResultSerializer},
+        summary="Импорт накладной файлом (.xlsx / .xls / .csv)",
     ),
 )
 class ManagedParcelViewSet(GenericViewSet):
@@ -371,3 +484,182 @@ class ManagedParcelViewSet(GenericViewSet):
                 errors.append({"index": index, "id": pid, "error": str(exc)})
 
         return Response({"updated": updated, "errors": errors})
+
+    @action(
+        detail=False,
+        methods=("post",),
+        url_path="import",
+        parser_classes=(MultiPartParser, FormParser),
+    )
+    def import_file(self, request):
+        """Импорт накладной файлом (.xlsx / .xls / .csv).
+
+        Разбор на сервере, а не в приложении: формат у поставщиков плавает
+        (объединённые ячейки, cp1251, числа текстом), и каждый новый случай
+        иначе требовал бы релиза в сторах. Плюс исходник остаётся на диске —
+        когда на складе не сходится остаток, первый вопрос «какую накладную
+        залили», и ответить на него больше нечем.
+        """
+        serializer = ParcelImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        upload = data["file"]
+        if upload.size > IMPORT_MAX_FILE_BYTES:
+            return Response(
+                {"detail": f"Файл больше {IMPORT_MAX_FILE_BYTES // (1024 * 1024)} МБ."},
+                status=413,
+            )
+
+        forbidden = self._forbidden_status(data["status"])
+        if forbidden:
+            return Response({"detail": forbidden, "code": "forbidden_status"}, status=403)
+
+        try:
+            rows = read_rows(upload, upload.name)
+        except ImportFormatError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        layout = detect_layout(rows)
+        # Присланное клиентом важнее распознанного: оператор видит файл глазами.
+        try:
+            if data.get("start_row"):
+                layout.start_row = data["start_row"]
+            for field, attr in (
+                ("track_column", "track_column"),
+                ("weight_column", "weight_column"),
+                ("client_code_column", "client_code_column"),
+            ):
+                value = (data.get(field) or "").strip()
+                if value:
+                    column_letter_to_index(value)  # проверка формата
+                    setattr(layout, attr, value.upper())
+        except ImportFormatError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        if not layout.track_column:
+            return Response(
+                {
+                    "detail": "Не удалось определить колонку трек-номера. "
+                    "Укажите её вручную."
+                },
+                status=400,
+            )
+
+        items = extract_rows(rows, layout)
+        if len(items) > IMPORT_MAX_ROWS:
+            return Response(
+                {
+                    "detail": f"В файле {len(items)} строк, больше "
+                    f"{IMPORT_MAX_ROWS} за один раз не принимаем."
+                },
+                status=400,
+            )
+
+        china_only = self._china_only()
+        cargo = None
+        if not china_only:
+            from cargo.models import CargoCompany
+
+            cargo_id = get_request_cargo_id(request.user)
+            cargo = CargoCompany.objects.filter(pk=cargo_id).first() if cargo_id else None
+        point = data.get("pickup_point")
+
+        apply_kwargs = dict(
+            cargo=cargo,
+            actor=request.user,
+            status=data["status"],
+            pickup_point=point.id if point else None,
+            request=request,
+            global_resolve=china_only,
+        )
+
+        detected = {
+            "start_row": layout.start_row,
+            "track_column": layout.track_column,
+            "weight_column": layout.weight_column,
+            "client_code_column": layout.client_code_column,
+        }
+
+        if data.get("dry_run"):
+            outcome = _dry_run_import(items, apply_kwargs)
+            body = outcome.as_dict()
+            body["file_name"] = upload.name
+            body["detected"] = detected
+            body["preview"] = outcome.preview
+            return Response(body)
+
+        # Запись заводим до применения: ею помечаются строки истории, чтобы из
+        # журнала операций можно было открыть исходную накладную.
+        upload.seek(0)
+        record = ParcelImport.objects.create(
+            cargo=cargo,
+            actor=request.user,
+            file=upload,
+            file_name=upload.name,
+            status=data["status"],
+            detected=detected,
+        )
+        started_at = timezone.now()
+        outcome = apply_import_rows(items, **apply_kwargs)
+
+        if outcome.parcel_ids:
+            ParcelStatusHistory.objects.filter(
+                parcel_id__in=outcome.parcel_ids,
+                created_at__gte=started_at,
+                source_import__isnull=True,
+            ).update(source_import=record)
+
+        record.total_rows = outcome.total_rows
+        record.created_count = outcome.created
+        record.updated_count = outcome.updated
+        record.skipped_count = outcome.skipped
+        record.errors = outcome.errors
+        record.save(
+            update_fields=[
+                "total_rows",
+                "created_count",
+                "updated_count",
+                "skipped_count",
+                "errors",
+            ]
+        )
+
+        body = outcome.as_dict()
+        body["file_name"] = upload.name
+        body["detected"] = detected
+        body["source_file"] = request.build_absolute_uri(record.file.url)
+
+        log_audit(
+            AuditLog.Action.PARCEL_IMPORTED,
+            actor=request.user,
+            description=f"Импорт накладной {upload.name}",
+            metadata={
+                "import_id": record.id,
+                "file_name": upload.name,
+                "status": data["status"],
+                **outcome.as_dict(),
+            },
+            request=request,
+        )
+        return Response(body)
+
+
+def _dry_run_import(items, apply_kwargs):
+    """Прогнать импорт и откатить.
+
+    Именно прогнать, а не считать отдельной веткой: предпросмотр должен
+    показывать ровно то, что произойдёт при записи, иначе он бесполезен.
+    """
+
+    class _Rollback(Exception):
+        pass
+
+    outcome = None
+    try:
+        with transaction.atomic():
+            outcome = apply_import_rows(items, **apply_kwargs)
+            raise _Rollback()
+    except _Rollback:
+        pass
+    return outcome

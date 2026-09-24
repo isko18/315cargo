@@ -302,11 +302,15 @@ CELERY_RESULT_BACKEND = REDIS_URL
 #
 # Итого до Кыргызстана ~9 дней. Меняется через .env без деплоя, но требует
 # рестарта cargo-celery.
+# Секунды до следующего шага, накопительно от скана на складе в Китае.
+# Ключ — статус, из которого уходим; задаёт AUTO_FLOW.
+#   +1 день  → В пути
+#   +7 дней  → На таможне (итого 8), дальше ждём скан в ПВЗ
+# Статуса «На таможне» в словаре нет намеренно: отсутствие ключа и есть точка
+# остановки цепочки.
 AUTO_STATUS_DELAYS = {
-    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 10)),
-    "processing": int(os.getenv("AUTO_DELAY_PROCESSING", 1 * 86400)),
-    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 4 * 86400)),
-    "arrived_topa": int(os.getenv("AUTO_DELAY_TOPA", 4 * 86400)),
+    "arrived_china_warehouse": int(os.getenv("AUTO_DELAY_ARRIVED_CHINA", 1 * 86400)),
+    "in_transit": int(os.getenv("AUTO_DELAY_IN_TRANSIT", 7 * 86400)),
 }
 
 LOGGING = {

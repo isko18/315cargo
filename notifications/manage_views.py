@@ -11,8 +11,10 @@ push — это правильно и менять не надо.
 import posixpath
 
 from django.db import transaction
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers
+from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -40,6 +42,42 @@ class BroadcastSerializer(serializers.Serializer):
     image = serializers.ImageField(required=False, allow_null=True)
 
 
+class PersonalMessageSerializer(serializers.Serializer):
+    """Адресное сообщение конкретным клиентам.
+
+    Получателей можно задать и внутренними id (панель выбрала их из списка), и
+    кодами клиентов — у оператора на руках код с коробки, а не id.
+    """
+
+    clients = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), many=True, required=False
+    )
+    client_codes = serializers.ListField(
+        child=serializers.CharField(allow_blank=True), required=False
+    )
+    title = serializers.CharField(max_length=255)
+    body = serializers.CharField()
+    send_push = serializers.BooleanField(default=True)
+    image = serializers.ImageField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not attrs.get("clients") and not [
+            c for c in (attrs.get("client_codes") or []) if c.strip()
+        ]:
+            raise serializers.ValidationError(
+                "Укажите получателей: clients или client_codes."
+            )
+        return attrs
+
+
+class PersonalMessageResultSerializer(serializers.Serializer):
+    recipients_count = serializers.IntegerField()
+    not_found = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Коды клиентов, которых нет в вашем карго.",
+    )
+
+
 class BroadcastListSerializer(serializers.Serializer):
     """Что уже разослано: рассылки группируются по заголовку и времени."""
 
@@ -55,6 +93,12 @@ class BroadcastListSerializer(serializers.Serializer):
     list=extend_schema(tags=["manage"], responses=BroadcastListSerializer(many=True)),
     create=extend_schema(tags=["manage"], request=BroadcastSerializer, responses={201: dict}),
     destroy=extend_schema(tags=["manage"], responses={204: None}),
+    send=extend_schema(
+        tags=["manage"],
+        request=PersonalMessageSerializer,
+        responses={201: PersonalMessageResultSerializer},
+        summary="Отправить уведомление конкретным клиентам",
+    ),
 )
 class ManagedNotificationViewSet(GenericViewSet):
     """Создание и просмотр рассылок по клиентам карго."""
@@ -150,6 +194,71 @@ class ManagedNotificationViewSet(GenericViewSet):
             .first()
         )
         return Response({"id": first.id if first else None, "recipients_count": count}, status=201)
+
+    def _save_image(self, upload):
+        """Сохранить картинку один раз на всё сообщение.
+
+        Файл в каждом уведомлении дал бы N копий одной картинки в хранилище.
+        Путь собираем через posixpath, а не generate_filename(): тот на Windows
+        вернёт «notifications\\файл.png», и ссылка не откроется.
+        """
+        if upload is None:
+            return None
+        storage = Notification.image.field.storage
+        return storage.save(
+            posixpath.join("notifications", storage.get_valid_name(upload.name)), upload
+        )
+
+    @action(detail=False, methods=("post",), url_path="send")
+    def send(self, request):
+        """Уведомление конкретным клиентам, а не всему ПВЗ.
+
+        Разбор получателей намеренно разный: неизвестный **id** — это ошибка
+        панели (она выбирала клиента из списка), поэтому отвечаем 400 и не шлём
+        ничего. Неизвестный **код** вводит или сканирует человек, поэтому
+        остальным сообщение уходит, а промахи возвращаются в ``not_found``.
+        """
+        serializer = PersonalMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        ids = [c.pk for c in data.get("clients") or []]
+        codes = [c.strip() for c in (data.get("client_codes") or []) if c.strip()]
+
+        # Скоуп тот же, что у рассылки: клиенты своего карго, а привязанный к
+        # ПВЗ оператор — только своего пункта.
+        allowed = self._recipients()
+        found = list(allowed.filter(Q(pk__in=ids) | Q(client_code__in=codes)).distinct())
+
+        found_ids = {u.pk for u in found}
+        found_codes = {u.client_code for u in found if u.client_code}
+        missing_ids = [i for i in ids if i not in found_ids]
+        missing_codes = [c for c in codes if c not in found_codes]
+
+        if missing_ids:
+            return Response(
+                {"detail": "Клиент не найден в вашем карго.", "clients": missing_ids},
+                status=400,
+            )
+        if not found:
+            return Response(
+                {"detail": "Ни один получатель не найден.", "not_found": missing_codes},
+                status=400,
+            )
+
+        image_name = self._save_image(data.get("image"))
+        with transaction.atomic():
+            count = notify_many(
+                found,
+                data["title"],
+                data["body"],
+                type=NotificationType.PERSONAL,
+                push=data["send_push"],
+                image=image_name,
+            )
+        return Response(
+            {"recipients_count": count, "not_found": missing_codes}, status=201
+        )
 
     def destroy(self, request, pk=None):
         """Удаляет всю рассылку, а не одну её копию.

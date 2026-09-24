@@ -19,6 +19,10 @@ class NotificationType(models.TextChoices):
     SHOP1688_SYNCED = "shop1688_synced", _("1688 синхронизирован")
     MARKETING = "marketing", _("Рекламное")
     SYSTEM = "system", _("Системное")
+    # Адресное сообщение от сотрудника конкретному клиенту. Отдельный тип, а не
+    # SYSTEM: рассылка группируется и удаляется по заголовку с текстом, и личное
+    # письмо с тем же текстом попало бы и в список рассылок, и под удаление.
+    PERSONAL = "personal", _("Личное сообщение")
 
 
 class Notification(models.Model):

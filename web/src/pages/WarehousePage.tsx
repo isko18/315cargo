@@ -42,6 +42,7 @@ const STATUS_ORDER = [
   'processing',
   'in_transit',
   'arrived_topa',
+  'customs',
   'arrived_kyrgyzstan',
   'in_storage',
   'sent_to_kyrgyzstan',

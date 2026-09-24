@@ -15,6 +15,7 @@ class Parcel(models.Model):
         ARRIVED_KYRGYZSTAN = "arrived_kyrgyzstan", _("Прибыл в Кыргызстан")
         PROCESSING = "processing", _("Классификация и обработка")
         ARRIVED_TOPA = "arrived_topa", _("Прибыл в Топа")
+        CUSTOMS = "customs", _("На таможне")
         AT_PICKUP_POINT = "at_pickup_point", _("Прибыл в пункт выдачи")
         CITY_DELIVERY = "city_delivery", _("Передан на доставку по городу")
         DELIVERED = "delivered", _("Доставлен")
@@ -164,6 +165,17 @@ class ParcelStatusHistory(models.Model):
         related_name="parcel_status_changes",
         verbose_name=_("Кто изменил"),
     )
+    # Откуда пришла строка, если статус проставлен импортом накладной. Нужно,
+    # чтобы из истории можно было открыть исходный файл: «какую накладную
+    # залили» — первый вопрос, когда на складе не сходится остаток.
+    source_import = models.ForeignKey(
+        "parcels.ParcelImport",
+        on_delete=models.SET_NULL,
+        related_name="status_changes",
+        null=True,
+        blank=True,
+        verbose_name=_("Импорт накладной"),
+    )
     created_at = models.DateTimeField(_("Дата изменения"), auto_now_add=True)
 
     class Meta:
@@ -181,3 +193,47 @@ class ParcelStatusHistory(models.Model):
 
     def __str__(self):
         return f"{self.parcel.track_number} {self.status}"
+
+
+class ParcelImport(models.Model):
+    """Загруженная накладная: сам файл и итог разбора.
+
+    Файл храним намеренно. Когда на складе не сходится остаток, первый вопрос —
+    «какую накладную залили», и без исходника ответить нечем: по строкам в
+    истории посылок восстановить, что было в файле, уже невозможно.
+    """
+
+    cargo = models.ForeignKey(
+        "cargo.CargoCompany",
+        on_delete=models.CASCADE,
+        related_name="parcel_imports",
+        null=True,
+        blank=True,
+        verbose_name=_("Карго-центр"),
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="parcel_imports",
+        null=True,
+        blank=True,
+        verbose_name=_("Кто загрузил"),
+    )
+    file = models.FileField(_("Файл"), upload_to="imports/%Y/%m/")
+    file_name = models.CharField(_("Имя файла"), max_length=255)
+    status = models.CharField(_("Проставленный статус"), max_length=32)
+    total_rows = models.PositiveIntegerField(_("Строк в файле"), default=0)
+    created_count = models.PositiveIntegerField(_("Создано"), default=0)
+    updated_count = models.PositiveIntegerField(_("Обновлено"), default=0)
+    skipped_count = models.PositiveIntegerField(_("Пропущено"), default=0)
+    errors = models.JSONField(_("Ошибки по строкам"), default=list, blank=True)
+    detected = models.JSONField(_("Распознанная раскладка"), default=dict, blank=True)
+    created_at = models.DateTimeField(_("Загружен"), auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = _("Импорт накладной")
+        verbose_name_plural = _("Импорты накладных")
+
+    def __str__(self):
+        return f"{self.file_name} ({self.created_at:%Y-%m-%d %H:%M})"

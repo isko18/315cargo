@@ -172,6 +172,7 @@ class OperationHistorySerializer(serializers.ModelSerializer):
     operator_name = serializers.CharField(source="changed_by.full_name", read_only=True, default=None)
     operator_phone = serializers.CharField(source="changed_by.phone", read_only=True, default=None)
     pickup_point_title = serializers.SerializerMethodField()
+    source_file = serializers.SerializerMethodField()
 
     class Meta:
         model = ParcelStatusHistory
@@ -190,8 +191,22 @@ class OperationHistorySerializer(serializers.ModelSerializer):
             "operator_name",
             "operator_phone",
             "pickup_point_title",
+            "source_file",
             "created_at",
         )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_source_file(self, obj):
+        """Исходная накладная, если статус проставлен импортом файла.
+
+        Для операций, сделанных руками или сканером, — null.
+        """
+        record = obj.source_import
+        if record is None or not record.file:
+            return None
+        request = self.context.get("request")
+        url = record.file.url
+        return request.build_absolute_uri(url) if request else url
 
     def get_type(self, obj):
         if obj.status == Parcel.Status.ISSUED:

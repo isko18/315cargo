@@ -295,3 +295,27 @@ def test_parcels_filter_by_marketplace(auth_client):
     assert tracks("source_in=taobao,pinduoduo") == {"F-TRACK-TB", "F-TRACK-PDD"}
     # Без фильтра — все, ничего не теряется.
     assert tracks("") >= {"F-TRACK-TB", "F-TRACK-PDD", "F-TRACK-SCAN"}
+
+
+@pytest.mark.django_db
+def test_admin_csv_import_defaults_to_china_warehouse():
+    """Без колонки статуса посылка должна встать на склад в Китае.
+
+    Раньше умолчанием был «Оформлен» — статус вне авто-цепочки, и такая
+    посылка не двигалась вообще никогда.
+    """
+    import io
+
+    from parcels.imports import import_parcels_from_csv
+    from parcels.models import Parcel
+    from tests.factories import UserFactory
+
+    client = UserFactory(client_code="CSV-0001")
+    csv_content = b"track_number,client_code\nCSVTRACK1,CSV-0001\n"
+
+    result = import_parcels_from_csv(io.BytesIO(csv_content))
+
+    assert result.created == 1, result.errors
+    assert Parcel.objects.get(track_number="CSVTRACK1").status == (
+        Parcel.Status.ARRIVED_CHINA_WAREHOUSE
+    )

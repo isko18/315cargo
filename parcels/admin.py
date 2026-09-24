@@ -11,7 +11,7 @@ from common.audit import log_audit
 from common.models import AuditLog
 
 from .imports import import_parcels_from_csv
-from .models import Parcel, ParcelStatusHistory
+from .models import Parcel, ParcelImport, ParcelStatusHistory
 
 
 class ParcelImportForm(forms.Form):
@@ -239,3 +239,31 @@ class ParcelStatusHistoryAdmin(admin.ModelAdmin):
         "changed_by__phone",
     )
     raw_id_fields = ("parcel", "changed_by")
+
+
+@admin.register(ParcelImport)
+class ParcelImportAdmin(admin.ModelAdmin):
+    """Журнал загруженных накладных: кто, когда, какой файл, что прошло."""
+
+    list_display = (
+        "file_name",
+        "created_at",
+        "actor",
+        "status",
+        "total_rows",
+        "created_count",
+        "updated_count",
+        "skipped_count",
+        "error_count",
+    )
+    list_filter = ("status", "created_at", "cargo")
+    search_fields = ("file_name",)
+    readonly_fields = tuple(f.name for f in ParcelImport._meta.fields)
+
+    def has_add_permission(self, request):
+        # Запись создаётся импортом; руками её заводить нечем.
+        return False
+
+    @admin.display(description="Ошибок")
+    def error_count(self, obj):
+        return len(obj.errors or [])

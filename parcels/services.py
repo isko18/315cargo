@@ -38,6 +38,9 @@ _STATUS_ORDER = [
     Parcel.Status.IN_TRANSIT,
     Parcel.Status.ARRIVED_TOPA,
     Parcel.Status.ARRIVED_KYRGYZSTAN,
+    # Последний авто-статус. Дальше — только реальный скан в ПВЗ, поэтому
+    # ранг обязан быть ниже AT_PICKUP_POINT, иначе скан сочтут откатом.
+    Parcel.Status.CUSTOMS,
     Parcel.Status.AT_PICKUP_POINT,
     Parcel.Status.CITY_DELIVERY,
     Parcel.Status.DELIVERED,
@@ -270,12 +273,18 @@ def update_parcel_status(parcel, status, comment=None, changed_by=None):
 # Порядок авто-цепочки после 1-го скана (скан на складе в Китае):
 # Китай → классификация → в пути → Топа → Кыргызстан. Последний статус —
 # «ожидание 2-го скана в ПВЗ» (дальше at_pickup_point ставится вручную).
+# Таймерная часть маршрута: склад в Китае → (1 день) В пути → (7 дней) Таможня.
+#
+# Дальше цепочка молчит. Прибытие в Кыргызстан и в ПВЗ — физические факты, и
+# раньше их объявлял таймер: посылка получала «Прибыл в Кыргызстан» на 9-й день
+# независимо от того, где она была. По проду это давало разброс в обе стороны —
+# часть партий доезжала за 3–5 дней и лежала в ПВЗ со статусом «в пути», а
+# большинство ехало 10–14 дней, и клиент получал пуш о прибытии, пока фура была
+# в дороге. Поэтому финальные статусы ставит только скан.
 AUTO_FLOW = [
     Parcel.Status.ARRIVED_CHINA_WAREHOUSE,
-    Parcel.Status.PROCESSING,
     Parcel.Status.IN_TRANSIT,
-    Parcel.Status.ARRIVED_TOPA,
-    Parcel.Status.ARRIVED_KYRGYZSTAN,
+    Parcel.Status.CUSTOMS,
 ]
 
 
@@ -350,3 +359,116 @@ def advance_all_parcels(now=None, notify=True):
         if advance_parcel_auto(parcel, now=now, notify=notify):
             moved += 1
     return moved
+
+
+# --- Импорт накладной файлом ---
+
+# Предпросмотр: по первым строкам оператор видит, ту ли колонку мы взяли.
+IMPORT_PREVIEW_LIMIT = 10
+
+
+class ImportOutcome:
+    """Итог разбора накладной.
+
+    Инвариант: created + updated + skipped + len(errors) == total_rows.
+    Если сумма не сходится, оператор не понимает, что случилось с остатком, —
+    поэтому строка попадает ровно в одну корзину.
+    """
+
+    def __init__(self, total_rows=0):
+        self.total_rows = total_rows
+        self.created = 0
+        self.updated = 0
+        self.skipped = 0
+        self.errors = []
+        self.preview = []
+        # Чьи строки истории пометить ссылкой на файл накладной.
+        self.parcel_ids = []
+
+    def as_dict(self):
+        return {
+            "total_rows": self.total_rows,
+            "created": self.created,
+            "updated": self.updated,
+            "skipped": self.skipped,
+            "errors": self.errors,
+        }
+
+
+def apply_import_rows(
+    items,
+    *,
+    cargo,
+    actor=None,
+    status=None,
+    pickup_point=None,
+    request=None,
+    global_resolve=False,
+):
+    """Применить разобранные строки накладной. Семантика строки — как у scan/.
+
+    Каждая строка в своей транзакции: одна плохая не должна отменить накладную.
+    Неизвестный код клиента ``scan_parcel`` отклоняет (а не создаёт посылку без
+    привязки) — здесь поведение то же, чтобы импорт и ручной скан не расходились.
+    """
+    from .importers import ImportFormatError, parse_weight
+
+    outcome = ImportOutcome(total_rows=len(items))
+
+    for item in items:
+        if len(outcome.preview) < IMPORT_PREVIEW_LIMIT:
+            outcome.preview.append(
+                {
+                    "row": item.row,
+                    "track_number": item.track_number,
+                    "weight": item.weight,
+                    "client_code": item.client_code,
+                }
+            )
+
+        track = (item.track_number or "").strip()
+        if not track:
+            # Хвост файла или строка-разделитель — не ошибка.
+            outcome.skipped += 1
+            continue
+
+        try:
+            weight = parse_weight(item.weight)
+        except ImportFormatError as exc:
+            outcome.errors.append(
+                {"row": item.row, "track_number": track, "error": str(exc)}
+            )
+            continue
+
+        try:
+            with transaction.atomic():
+                result, parcel = scan_parcel(
+                    track,
+                    cargo=cargo,
+                    actor=actor,
+                    status=status,
+                    weight=weight,
+                    client_code=(item.client_code or "").strip() or None,
+                    pickup_point=pickup_point,
+                    request=request,
+                    global_resolve=global_resolve,
+                )
+                outcome.parcel_ids.append(parcel.id)
+        except ScanError as exc:
+            outcome.errors.append(
+                {"row": item.row, "track_number": track, "error": exc.message}
+            )
+            continue
+        except Exception as exc:  # неожиданная ошибка не должна рвать накладную
+            logger.exception("Import row failed", extra={"track_number": track})
+            outcome.errors.append(
+                {"row": item.row, "track_number": track, "error": str(exc)}
+            )
+            continue
+
+        if result in ("updated", "unchanged"):
+            outcome.updated += 1
+        else:
+            outcome.created += 1
+
+    return outcome
