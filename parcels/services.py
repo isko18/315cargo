@@ -472,3 +472,54 @@ def apply_import_rows(
             outcome.created += 1
 
     return outcome
+
+
+def adopt_pending_parcel(parcel, order, notify=True):
+    """Привязать «ничью» посылку к заказу и его клиенту.
+
+    Ничья посылка появляется, когда оператор на складе в Китае сканирует коробку
+    раньше, чем заказ приедет с маркетплейса: на момент скана заказа нет, и
+    ``scan_parcel`` честно оставляет ``created_pending``. Раньше никто её потом
+    не подбирал — из этого росли жалобы «код клиента не присваивается»,
+    «уведомления не приходят» и «клиент не видит товар по треку».
+
+    Вызывать только для посылки без хозяина: проверку делает вызывающий, потому
+    что перехват посылки чужого клиента — худшее, что тут может случиться.
+
+    ``notify=False`` — для разовой подтяжки накопленного: там сотни посылок, и
+    пачка уведомлений разом читалась бы как сбой.
+    """
+    from common.audit import log_audit
+    from common.models import AuditLog
+
+    client = order.user
+    parcel.order = order
+    parcel.user = client
+    parcel.client_code = client.client_code or ""
+    if parcel.cargo_id is None:
+        parcel.cargo_id = client.cargo_id
+    parcel.save(
+        update_fields=["order", "user", "client_code", "cargo", "updated_at"]
+    )
+
+    if notify:
+        from .signals import send_parcel_status_notification
+
+        send_parcel_status_notification(parcel)
+
+    log_audit(
+        AuditLog.Action.PARCEL_SCANNED,
+        target_user=client,
+        description=f"Ничья посылка {parcel.track_number} привязана к заказу",
+        metadata={
+            "track_number": parcel.track_number,
+            "result": "adopted_by_order",
+            "parcel_id": parcel.id,
+            "order_id": order.id,
+        },
+    )
+    logger.info(
+        "Pending parcel adopted",
+        extra={"track_number": parcel.track_number, "order_id": order.id},
+    )
+    return parcel

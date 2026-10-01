@@ -89,37 +89,46 @@ def create_status_history_and_notification(sender, instance, created, **kwargs):
     if getattr(instance, "_suppress_notification", False):
         return
 
-    # Pending-посылки сканера ещё не привязаны к клиенту — уведомлять некого.
-    if instance.user_id is None:
-        return
+    send_parcel_status_notification(instance)
 
-    display_name = instance.get_status_display()
+
+def send_parcel_status_notification(parcel):
+    """Уведомить клиента о текущем статусе посылки. Возвращает True, если ушло.
+
+    Вынесено из сигнала, потому что нужно ещё в одном месте: когда «ничья»
+    посылка находит хозяина (заказ приехал позже скана), клиент о ней ещё ничего
+    не знает — уведомлять надо по уже имеющемуся статусу, без его смены.
+    """
+    if parcel.user_id is None:
+        # Pending-посылки сканера ещё не привязаны к клиенту — уведомлять некого.
+        return False
+
+    display_name = parcel.get_status_display()
     data = {
-        "parcel_id": instance.id,
-        "track_number": instance.track_number,
-        "status": instance.status,
+        "parcel_id": parcel.id,
+        "track_number": parcel.track_number,
+        "status": parcel.status,
         "status_display_name": display_name,
     }
 
-    if instance.status == Parcel.Status.AT_PICKUP_POINT:
+    if parcel.status == Parcel.Status.AT_PICKUP_POINT:
         notify(
-            instance.user,
+            parcel.user,
             title="Посылка в ПВЗ",
-            body=f"Посылка {instance.track_number} прибыла в ПВЗ",
+            body=f"Посылка {parcel.track_number} прибыла в ПВЗ",
             type=NotificationType.PARCEL_AT_PICKUP_POINT,
             data=data,
         )
-        _stamp_notified(instance)
-        return
-
-    title, phrase = STATUS_MESSAGES.get(
-        instance.status, ("Статус посылки обновлён", display_name.lower())
-    )
-    notify(
-        instance.user,
-        title=title,
-        body=f"Посылка {instance.track_number} {phrase}",
-        type=NotificationType.PARCEL_STATUS_CHANGED,
-        data=data,
-    )
-    _stamp_notified(instance)
+    else:
+        title, phrase = STATUS_MESSAGES.get(
+            parcel.status, ("Статус посылки обновлён", display_name.lower())
+        )
+        notify(
+            parcel.user,
+            title=title,
+            body=f"Посылка {parcel.track_number} {phrase}",
+            type=NotificationType.PARCEL_STATUS_CHANGED,
+            data=data,
+        )
+    _stamp_notified(parcel)
+    return True

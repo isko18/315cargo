@@ -241,6 +241,7 @@ class MarketplaceSyncService:
         заменяет временный. Чужие посылки не трогаем.
         """
         from parcels.models import Parcel
+        from parcels.services import adopt_pending_parcel
 
         real_track = (order.track_number or "").strip()
         parcel_track = real_track or (order.external_order_id or "").strip()
@@ -251,7 +252,16 @@ class MarketplaceSyncService:
         if parcel is None:
             clash = Parcel.objects.filter(track_number=parcel_track).first()
             if clash:
-                return clash if clash.order_id == order.id else None
+                if clash.order_id == order.id:
+                    return clash
+                # «Ничья» посылка со сканера: оператор на складе в Китае
+                # отсканировал коробку раньше, чем заказ успел прийти с
+                # маркетплейса (по проду — в 454 случаях из 467, в среднем на
+                # 110 часов). Заказ как раз и говорит, чья это посылка, поэтому
+                # присваиваем. Посылку с хозяином по-прежнему не трогаем.
+                if clash.user_id is None and clash.order_id is None:
+                    return adopt_pending_parcel(clash, order)
+                return None
             return Parcel.objects.create(
                 order=order,
                 user=order.user,

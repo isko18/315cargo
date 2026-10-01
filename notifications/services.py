@@ -174,12 +174,24 @@ def send_push_notification(
         logger.exception("FCM send failed: %s", exc)
         return False
 
+    # Платформа по токену — чтобы в логе было видно, на какой ОС отказ.
+    platforms = dict(
+        DeviceToken.objects.filter(token__in=tokens).values_list("token", "platform")
+    )
     dead_tokens = []
     for idx, resp in enumerate(response.responses):
         if resp.success:
             continue
+        # Причину и платформу пишем в само сообщение, а не только в extra:
+        # консольный формат extra не печатает, и в логе оставалось глухое
+        # «FCM delivery failed» — по нему нельзя отличить мёртвый токен от
+        # незагруженного APNs-ключа, а именно это и спрашивают при разборе
+        # «на Android доходит, на iOS нет».
         logger.warning(
-            "FCM delivery failed",
+            "FCM delivery failed: platform=%s error=%s token=...%s",
+            platforms.get(tokens[idx], "?"),
+            resp.exception,
+            tokens[idx][-12:],
             extra={"token": tokens[idx], "error": str(resp.exception)},
         )
         if _token_is_dead(resp.exception):
