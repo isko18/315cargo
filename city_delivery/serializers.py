@@ -6,8 +6,11 @@ from .models import CityDeliveryRequest, CityDeliveryTariff
 
 
 class CityDeliveryTariffSerializer(serializers.ModelSerializer):
+    # default=None обязателен: без него DRF, упёршись в пустой pickup_point при
+    # обходе source, выбрасывает поле из ответа целиком — оно есть в схеме, а в
+    # payload его нет, и клиент спотыкается на отсутствующем ключе.
     pickup_point_title = serializers.CharField(
-        source="pickup_point.title", read_only=True
+        source="pickup_point.title", read_only=True, default=None
     )
 
     class Meta:

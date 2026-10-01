@@ -115,3 +115,28 @@ def test_cannot_create_for_other_user_parcel(auth_client):
         format="json",
     )
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_tariff_always_carries_pickup_point_title_key(auth_client):
+    """Ключ не должен исчезать у тарифа без ПВЗ.
+
+    DRF при обходе source «pickup_point.title» на пустом ПВЗ выбрасывает поле
+    целиком: оно объявлено в схеме, а в ответе его нет. Клиент, читающий
+    справочник точек, на таком расхождении спотыкается.
+    """
+    from city_delivery.models import CityDeliveryTariff
+
+    CityDeliveryTariff.objects.create(
+        title="Глобальный", base_price=100, price_per_kg=10,
+        free_weight_kg=1, min_price=100, pickup_point=None, cargo=None,
+    )
+
+    r = auth_client.get("/api/city-delivery-tariffs/")
+    rows = r.data["results"] if isinstance(r.data, dict) else r.data
+    assert rows, r.data
+    for row in rows:
+        assert "pickup_point_title" in row, row
+    without_point = [x for x in rows if x["pickup_point"] is None]
+    assert without_point
+    assert without_point[0]["pickup_point_title"] is None
