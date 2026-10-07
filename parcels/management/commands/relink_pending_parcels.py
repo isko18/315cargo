@@ -20,7 +20,7 @@ from django.db.models import Q
 
 from orders.models import Order
 from parcels.models import Parcel
-from parcels.services import adopt_pending_parcel
+from parcels.services import attach_parcel_to_order, plan_order_attach
 
 
 class Command(BaseCommand):
@@ -62,7 +62,12 @@ class Command(BaseCommand):
         by_status = Counter(p.status for p, _ in pairs)
 
         if not options["apply"]:
+            plans = Counter(plan_order_attach(p, o)[0] for p, o in pairs)
             self.stdout.write(f"Найдено пар посылка-заказ: {len(pairs)}")
+            self.stdout.write(
+                f"  привязать: {plans['adopt']}, заменить заглушку: {plans['merge']}, "
+                f"пропустить (у заказа уже есть посылка): {plans['conflict']}"
+            )
             self.stdout.write("По текущему статусу посылки:")
             for status, count in by_status.most_common():
                 self.stdout.write(f"  {status:<26} {count}")
@@ -74,13 +79,27 @@ class Command(BaseCommand):
             )
             return
 
-        moved = 0
-        for parcel, order in pairs:
-            adopt_pending_parcel(parcel, order, notify=options["notify"])
-            moved += 1
+        # Через общее правило: подбор 01.10 шёл в обход него и задвоил 10
+        # заказов — у каждого осталась заглушка и добавилась реальная посылка.
+        outcomes = Counter(
+            attach_parcel_to_order(parcel, order, notify=options["notify"])
+            for parcel, order in pairs
+        )
 
         suffix = "с уведомлениями" if options["notify"] else "без уведомлений"
-        self.stdout.write(self.style.SUCCESS(f"Привязано {suffix}: {moved}."))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Привязано {suffix}: {outcomes['adopted'] + outcomes['merged']} "
+                f"(из них заменили заглушку: {outcomes['merged']})."
+            )
+        )
+        if outcomes["conflict"]:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Пропущено {outcomes['conflict']}: у заказа уже есть посылка "
+                    "с настоящим треком — нужна ручная проверка."
+                )
+            )
         left = Parcel.objects.filter(
             user__isnull=True, order__isnull=True, is_archived=False
         ).count()

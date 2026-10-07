@@ -241,7 +241,7 @@ class MarketplaceSyncService:
         заменяет временный. Чужие посылки не трогаем.
         """
         from parcels.models import Parcel
-        from parcels.services import adopt_pending_parcel
+        from parcels.services import attach_parcel_to_order
 
         real_track = (order.track_number or "").strip()
         parcel_track = real_track or (order.external_order_id or "").strip()
@@ -260,7 +260,8 @@ class MarketplaceSyncService:
                 # 110 часов). Заказ как раз и говорит, чья это посылка, поэтому
                 # присваиваем. Посылку с хозяином по-прежнему не трогаем.
                 if clash.user_id is None and clash.order_id is None:
-                    return adopt_pending_parcel(clash, order)
+                    outcome = attach_parcel_to_order(clash, order)
+                    return clash if outcome != "conflict" else None
                 return None
             return Parcel.objects.create(
                 order=order,
@@ -270,14 +271,42 @@ class MarketplaceSyncService:
                 track_number=parcel_track,
             )
         # Посылка уже есть: при появлении реального трека обновляем идентификатор.
-        if (
-            real_track
-            and parcel.track_number != real_track
-            and not Parcel.objects.filter(track_number=real_track).exclude(pk=parcel.pk).exists()
-        ):
-            parcel.track_number = real_track
-            parcel.save(update_fields=("track_number", "updated_at"))
+        if real_track and parcel.track_number != real_track:
+            holder = Parcel.objects.filter(track_number=real_track).exclude(pk=parcel.pk).first()
+            if holder is None:
+                parcel.track_number = real_track
+                parcel.save(update_fields=("track_number", "updated_at"))
+            elif holder.user_id is None and holder.order_id is None:
+                # Реальный трек уже занят — коробку отсканировали на складе
+                # раньше, чем пришёл трек. Раньше переименование здесь молча
+                # пропускалось, и у заказа оставалась заглушка, а настоящая
+                # коробка — ничьей. Теперь заглушка уступает ей место.
+                if attach_parcel_to_order(holder, order) != "conflict":
+                    return holder
         return parcel
+
+    def _attach_physical_parcel(self, order):
+        """Привязать уже отсканированную коробку к заказу, не заводя новую.
+
+        Для заказов, под которые посылку не создаём (не оплачен, отменён):
+        если коробка с их треком уже лежит на складе, значит товар поехал, а
+        статус заказа просто устарел. Новую посылку не создаём — существующую
+        привязываем.
+        """
+        from parcels.models import Parcel
+        from parcels.services import attach_parcel_to_order
+
+        real_track = (order.track_number or "").strip()
+        if not real_track:
+            return None
+        physical = Parcel.objects.filter(
+            track_number=real_track, user__isnull=True, order__isnull=True
+        ).first()
+        if physical is None:
+            return None
+        if attach_parcel_to_order(physical, order) == "conflict":
+            return None
+        return physical
 
     def _apply_order(self, payload, *, result: SyncResult, create_parcels: bool):
         if not isinstance(payload, dict):
@@ -314,6 +343,8 @@ class MarketplaceSyncService:
         # под него не заводим: физически везти нечего.
         if create_parcels and (payload.get("status") or "") not in STATUSES_WITHOUT_PARCEL:
             self._sync_parcel_for_order(order)
+        elif create_parcels:
+            self._attach_physical_parcel(order)
 
     def _expand(self, orders):
         """Развернуть полный ответ маркетплейса в список заказов.

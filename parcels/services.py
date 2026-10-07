@@ -177,6 +177,7 @@ def scan_parcel(
         # коробка не должны полуприменить скан (статус сменился, а клиент нет).
         new_owner = None
         new_order = None
+        placeholders = []
         if existing.user_id is None:
             if client_code:
                 # Посылку приняли в Китае без клиента, а в ПВЗ ввели код. Раньше
@@ -189,9 +190,14 @@ def scan_parcel(
                 )
                 if not global_resolve and cargo is not None:
                     order_qs = order_qs.filter(user__cargo_id=cargo.id)
-                new_order = order_qs.first()
-                if new_order is not None:
-                    new_owner = new_order.user
+                candidate = order_qs.first()
+                if candidate is not None:
+                    # Тот же план, что у синхронизации и подтяжки: заглушка
+                    # уступает место, настоящая посылка у заказа — конфликт.
+                    plan, placeholders = plan_order_attach(existing, candidate)
+                    if plan != "conflict":
+                        new_order = candidate
+                        new_owner = candidate.user
         elif client_code and existing.user.client_code and client_code != existing.user.client_code:
             # Другой код на посылке с хозяином — перепутанная коробка или
             # наклейка. Молча переписать хозяина — значит отдать чужую посылку.
@@ -219,6 +225,8 @@ def scan_parcel(
         # Хозяина ставим ДО смены статуса: сигнал смены отправит «Посылка в
         # ПВЗ» уже ему, а не в пустоту.
         if new_owner is not None:
+            for placeholder in placeholders:
+                retire_placeholder(placeholder, replaced_by=existing)
             existing.user = new_owner
             existing.client_code = new_owner.client_code or ""
             fields = ["user", "client_code", "updated_at"]
@@ -589,3 +597,79 @@ def adopt_pending_parcel(parcel, order, notify=True):
         extra={"track_number": parcel.track_number, "order_id": order.id},
     )
     return parcel
+
+
+# --- Одна физическая коробка — одна посылка у заказа ---
+
+
+def _is_placeholder(parcel, order):
+    """Заглушка: синхронизация завела посылку, пока у заказа не было трека.
+
+    Узнаём её по треку, равному номеру заказа. Это не коробка, а место под неё.
+    """
+    external = (order.external_order_id or "").strip()
+    return bool(external) and parcel.track_number == external
+
+
+def plan_order_attach(parcel, order):
+    """Можно ли привязать физическую посылку к заказу, не задвоив его.
+
+    Возвращает (план, заглушки):
+      «adopt»    — у заказа посылок нет, просто привязываем;
+      «merge»    — у заказа только заглушки: они уступают место физической;
+      «conflict» — у заказа уже есть посылка с настоящим треком, либо заглушку
+                   успели выдать — привязывать нельзя, иначе у заказа станет
+                   две посылки и клиент будет получать напоминания по лишней.
+    Ничего не меняет — так скан может решить до любых изменений.
+    """
+    siblings = list(Parcel.objects.filter(order=order).exclude(pk=parcel.pk))
+    if not siblings:
+        return "adopt", []
+    for sibling in siblings:
+        if not _is_placeholder(sibling, order):
+            return "conflict", []
+        if sibling.is_archived or sibling.status == Parcel.Status.ISSUED:
+            # Под этой заглушкой уже выдали коробку — её не трогаем.
+            return "conflict", []
+    return "merge", siblings
+
+
+def retire_placeholder(placeholder, replaced_by):
+    """Заглушка уступает место физической посылке: отменяем молча и в архив.
+
+    Молча — потому что пуш «посылка отменена» про то, что было лишь местом под
+    коробку, напугал бы клиента зря. Запись остаётся в базе для истории.
+    """
+    placeholder._suppress_notification = True
+    update_parcel_status(
+        placeholder,
+        Parcel.Status.CANCELLED,
+        comment=(
+            f"Дубль: вместо трека стоял номер заказа. Заменена посылкой "
+            f"{replaced_by.track_number}"
+        ),
+    )
+    placeholder.is_archived = True
+    placeholder.save(update_fields=["is_archived", "updated_at"])
+    logger.info(
+        "Placeholder parcel retired",
+        extra={"placeholder": placeholder.track_number, "replaced_by": replaced_by.track_number},
+    )
+
+
+def attach_parcel_to_order(parcel, order, notify=True):
+    """Привязать ничью физическую посылку к заказу по единому правилу.
+
+    Одно правило на все пути — синхронизацию заказа, скан и подтяжку. Подбор
+    01.10 шёл в обход него и задвоил 10 заказов: у каждого осталась заглушка и
+    добавилась реальная посылка.
+
+    Возвращает итог: «adopted», «merged» или «conflict» (ничего не сделано).
+    """
+    plan, placeholders = plan_order_attach(parcel, order)
+    if plan == "conflict":
+        return "conflict"
+    for placeholder in placeholders:
+        retire_placeholder(placeholder, replaced_by=parcel)
+    adopt_pending_parcel(parcel, order, notify=notify)
+    return "merged" if placeholders else "adopted"
