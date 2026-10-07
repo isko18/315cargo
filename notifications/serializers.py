@@ -36,6 +36,12 @@ class DeviceTokenSerializer(serializers.ModelSerializer):
         model = DeviceToken
         fields = ("id", "token", "platform", "is_active", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
+        # token уникален в модели, и DRF сам вешает на поле валидатор
+        # уникальности — он отклонял повтор с 400 раньше, чем дело доходило до
+        # update_or_create ниже. Повторная регистрация обязана проходить: её шлёт
+        # приложение при каждом запуске, ею же возвращается к жизни погашенный
+        # токен и переходит к новому владельцу телефон при смене аккаунта.
+        extra_kwargs = {"token": {"validators": []}}
 
     def create(self, validated_data):
         # `user` is always the authenticated requester (set in perform_create),

@@ -242,3 +242,53 @@ def test_unread_count(auth_client):
     response = auth_client.get("/api/notifications/unread-count/")
     assert response.status_code == 200
     assert response.data["count"] >= 1
+
+
+# --- повторная регистрация токена ---
+#
+# Приложение начнёт слать токен при каждом запуске, а не только при входе: из-за
+# регистрации «только при входе» у 97 клиентов на проде остались лишь мёртвые
+# токены. Повтор поэтому должен быть безопасным и обновлять запись.
+
+
+@pytest.mark.django_db
+def test_reregistering_same_token_is_idempotent(auth_client):
+    payload = {"token": "fcm-same", "platform": "ios"}
+    first = auth_client.post("/api/device-tokens/", payload, format="json")
+    assert first.status_code == 201, first.data
+    before = DeviceToken.objects.get(token="fcm-same").updated_at
+
+    second = auth_client.post("/api/device-tokens/", payload, format="json")
+    assert second.status_code in (200, 201), second.data
+    assert DeviceToken.objects.filter(token="fcm-same").count() == 1
+    assert DeviceToken.objects.get(token="fcm-same").updated_at > before
+
+
+@pytest.mark.django_db
+def test_reregistering_reactivates_deactivated_token(auth_client):
+    """Токен погасили по ошибке отправки, а устройство прислало его снова — он жив."""
+    DeviceToken.objects.create(
+        user=auth_client.user, token="fcm-back", platform="android", is_active=False
+    )
+    r = auth_client.post(
+        "/api/device-tokens/", {"token": "fcm-back", "platform": "android"}, format="json"
+    )
+    assert r.status_code in (200, 201), r.data
+    assert DeviceToken.objects.get(token="fcm-back").is_active is True
+
+
+@pytest.mark.django_db
+def test_token_moves_to_account_that_registered_it_last(auth_client, staff_user):
+    """Смена аккаунта на одном телефоне — тот же токен, другой владелец.
+
+    Если при выходе DELETE не дошёл (нет сети), токен остался бы у прежнего
+    аккаунта: его уведомления приходили бы на чужой телефон, а новый хозяин
+    телефона не получал бы свои.
+    """
+    DeviceToken.objects.create(user=staff_user, token="fcm-shared", platform="ios")
+
+    r = auth_client.post(
+        "/api/device-tokens/", {"token": "fcm-shared", "platform": "ios"}, format="json"
+    )
+    assert r.status_code in (200, 201), r.data
+    assert DeviceToken.objects.get(token="fcm-shared").user_id == auth_client.user.id
