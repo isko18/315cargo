@@ -252,3 +252,48 @@ def notify_many(
         if notify(user, title, body, type=type, data=data, push=push, image=image) is not None:
             count += 1
     return count
+
+
+def probe_tokens(tokens) -> dict:
+    """Спросить FCM, живы ли токены, ничего не доставляя (dry_run).
+
+    Три исхода, а не два: True — жив, False — мёртв навсегда (приложение
+    удалено, токен отозван или битый), None — понять не удалось (FCM недоступен,
+    квота, внутренняя ошибка). По None никаких выводов делать нельзя: иначе любой
+    сбой FCM записал бы рабочие токены в мёртвые.
+
+    Ограничение dry_run: до APNs он не доходит и ключ не проверяет — годится
+    только для вопроса «жив ли токен», а не «дойдёт ли push».
+    """
+    result = {}
+    tokens = list(tokens)
+    if not tokens:
+        return result
+    if not _ensure_firebase_initialized():
+        return {t: None for t in tokens}
+
+    from firebase_admin import messaging
+
+    for i in range(0, len(tokens), 500):  # предел FCM на один вызов
+        batch = tokens[i : i + 500]
+        messages = [
+            messaging.Message(
+                token=t, notification=messaging.Notification(title="probe", body="probe")
+            )
+            for t in batch
+        ]
+        try:
+            response = messaging.send_each(messages, dry_run=True)
+        except Exception as exc:
+            logger.warning("FCM probe failed: %s", exc)
+            for t in batch:
+                result[t] = None
+            continue
+        for token, resp in zip(batch, response.responses):
+            if resp.success:
+                result[token] = True
+            elif _token_is_dead(resp.exception):
+                result[token] = False
+            else:
+                result[token] = None
+    return result
