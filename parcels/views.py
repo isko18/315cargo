@@ -141,11 +141,19 @@ class ParcelViewSet(ReadOnlyModelViewSet):
                 global_resolve=china_only,
             )
         except ScanError as exc:
-            conflicts = {"conflict", "already_advanced", "ambiguous"}
+            conflicts = {"conflict", "already_advanced", "ambiguous", "client_mismatch"}
             status_code = 409 if exc.code in conflicts else 400
             return Response({"detail": exc.message, "code": exc.code}, status=status_code)
         return Response(
-            {"result": result, "parcel": ParcelSerializer(parcel).data},
+            {
+                "result": result,
+                "parcel": ParcelSerializer(parcel).data,
+                # Просить ли у оператора код клиента. Отдельным полем, а не по
+                # result: посылка, принятая в Китае без клиента, при приёмке в
+                # ПВЗ отдаёт «updated», и интерфейс, смотревший только на
+                # created_pending, код не спрашивал.
+                "needs_client": parcel.user_id is None,
+            },
             status=200 if result in ("updated", "unchanged") else 201,
         )
 
@@ -187,6 +195,13 @@ class ParcelViewSet(ReadOnlyModelViewSet):
             update_fields.append("cargo")
         parcel._status_changed_by = request.user
         parcel.save(update_fields=update_fields)
+        # Статус не менялся, поэтому сигнал смены статуса молчит. А клиент о
+        # посылке ещё ничего не знает — пока она была ничьей, уведомлять было
+        # некого. Сообщаем по текущему статусу, иначе посылка в ПВЗ лежит, а
+        # хозяин о ней не в курсе.
+        from .signals import send_parcel_status_notification
+
+        send_parcel_status_notification(parcel)
         return Response(ParcelSerializer(parcel).data)
 
     @extend_schema(request=ParcelWeightSerializer, responses={200: ParcelSerializer})

@@ -93,6 +93,30 @@ def resolve_pickup_address(pickup_point_id, user=None, actor=None):
 
 
 @transaction.atomic
+def _resolve_client_by_code(client_code, cargo, global_resolve):
+    """Клиент по коду с коробки. Код уникален только внутри карго.
+
+    Общий для приёма новой посылки и для приёма уже существующей ничьей: раньше
+    код разбирался только при создании, и у посылки, принятой в Китае без
+    клиента, введённый в ПВЗ код молча терялся.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    candidates = User.objects.select_related("cargo").filter(client_code=client_code)
+    if not global_resolve and cargo is not None:
+        candidates = candidates.filter(cargo_id=cargo.id)
+    matches = list(candidates[:2])
+    if len(matches) > 1:
+        raise ScanError(
+            "Код клиента найден в нескольких карго — уточните карго",
+            code="ambiguous",
+        )
+    if not matches:
+        raise ScanError(f"Клиент с кодом {client_code} не найден", code="no_client")
+    return matches[0]
+
+
 def scan_parcel(
     track_number,
     cargo,
@@ -149,18 +173,75 @@ def scan_parcel(
                 "Трек уже зарегистрирован в другом карго-центре", code="conflict"
             )
 
+        # Хозяина разбираем до любых изменений: опечатка в коде или чужая
+        # коробка не должны полуприменить скан (статус сменился, а клиент нет).
+        new_owner = None
+        new_order = None
+        if existing.user_id is None:
+            if client_code:
+                # Посылку приняли в Китае без клиента, а в ПВЗ ввели код. Раньше
+                # он здесь молча выбрасывался.
+                new_owner = _resolve_client_by_code(client_code, cargo, global_resolve)
+            else:
+                # Заказ мог прийти уже после скана в Китае — подбираем по нему.
+                order_qs = Order.objects.select_related("user").filter(
+                    track_number=track_number, user__isnull=False
+                )
+                if not global_resolve and cargo is not None:
+                    order_qs = order_qs.filter(user__cargo_id=cargo.id)
+                new_order = order_qs.first()
+                if new_order is not None:
+                    new_owner = new_order.user
+        elif client_code and existing.user.client_code and client_code != existing.user.client_code:
+            # Другой код на посылке с хозяином — перепутанная коробка или
+            # наклейка. Молча переписать хозяина — значит отдать чужую посылку.
+            raise ScanError(
+                f"Посылка уже привязана к клиенту {existing.user.client_code}, "
+                f"а введён код {client_code}. Проверьте коробку.",
+                code="client_mismatch",
+            )
+
         # Защита от случайных повторных сканов: статус не откатывается назад.
         cur_rank = STATUS_RANK.get(existing.status, -1)
         tgt_rank = STATUS_RANK.get(target_status, -1)
-        if target_status == existing.status:
-            # Тот же статус — повторный скан, ничего не меняем.
-            result = "unchanged"
-        elif cur_rank >= 0 and tgt_rank >= 0 and tgt_rank < cur_rank:
+        if (
+            target_status != existing.status
+            and cur_rank >= 0
+            and tgt_rank >= 0
+            and tgt_rank < cur_rank
+        ):
             raise ScanError(
                 f"Посылка уже дальше по маршруту: «{existing.get_status_display()}». "
                 "Повторный скан отклонён.",
                 code="already_advanced",
             )
+
+        # Хозяина ставим ДО смены статуса: сигнал смены отправит «Посылка в
+        # ПВЗ» уже ему, а не в пустоту.
+        if new_owner is not None:
+            existing.user = new_owner
+            existing.client_code = new_owner.client_code or ""
+            fields = ["user", "client_code", "updated_at"]
+            if new_order is not None:
+                existing.order = new_order
+                fields.append("order")
+            if existing.cargo_id is None:
+                existing.cargo_id = new_owner.cargo_id
+                fields.append("cargo")
+            existing.save(update_fields=fields)
+
+        if target_status == existing.status:
+            if new_owner is not None:
+                # Статус тот же, но клиент присвоен — это изменение, и
+                # «unchanged» соврал бы. Сигнал смены статуса не сработает,
+                # поэтому о посылке клиенту сообщаем сами.
+                from .signals import send_parcel_status_notification
+
+                send_parcel_status_notification(existing)
+                result = "updated"
+            else:
+                # Тот же статус — повторный скан, ничего не меняем.
+                result = "unchanged"
         else:
             update_parcel_status(existing, target_status, changed_by=actor)
             result = "updated"
@@ -195,22 +276,7 @@ def scan_parcel(
                 cargo = order.user.cargo
         elif client_code:
             # Ручной приём: клиент заказал напрямую и подписал коробку кодом.
-            candidates = User.objects.select_related("cargo").filter(
-                client_code=client_code
-            )
-            if not global_resolve and cargo is not None:
-                candidates = candidates.filter(cargo_id=cargo.id)
-            matches = list(candidates[:2])
-            if len(matches) > 1:
-                raise ScanError(
-                    "Код клиента найден в нескольких карго — уточните карго",
-                    code="ambiguous",
-                )
-            if not matches:
-                raise ScanError(
-                    f"Клиент с кодом {client_code} не найден", code="no_client"
-                )
-            user = matches[0]
+            user = _resolve_client_by_code(client_code, cargo, global_resolve)
             cargo = user.cargo
         # Иначе (общий склад без заказа и кода) — «ничья» посылка: cargo=None,
         # карго/клиент присвоятся позже (при совпадении заказа или приёмке в карго).
