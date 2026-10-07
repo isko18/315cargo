@@ -20,8 +20,10 @@ from cargo.views import (
 from common import invites, waha
 from common.views import DeliveryAddressAPIView
 from city_delivery.views import (
+    CityDeliveryPointViewSet,
     CityDeliveryRequestViewSet,
     CityDeliveryTariffViewSet,
+    ManagedCityDeliveryPointViewSet,
     ManagedCityDeliveryRequestViewSet,
     ManagedCityDeliveryTariffViewSet,
 )
@@ -62,6 +64,7 @@ router.register("parcels", ParcelViewSet, basename="parcels")
 router.register("history", OperationHistoryViewSet, basename="history")
 router.register("city-delivery", CityDeliveryRequestViewSet, basename="city-delivery")
 router.register("city-delivery-tariffs", CityDeliveryTariffViewSet, basename="city-delivery-tariffs")
+router.register("city-delivery-points", CityDeliveryPointViewSet, basename="city-delivery-points")
 router.register("notifications", NotificationViewSet, basename="notifications")
 router.register("device-tokens", DeviceTokenViewSet, basename="device-tokens")
 router.register("integrations/pinduoduo", PinduoduoIntegrationViewSet, basename="pinduoduo")
@@ -78,6 +81,11 @@ router.register(
 )
 router.register(
     "manage/pickup-points", ManagedPickupPointViewSet, basename="manage-pickup-points"
+)
+router.register(
+    "manage/city-delivery-points",
+    ManagedCityDeliveryPointViewSet,
+    basename="manage-city-delivery-points",
 )
 router.register(
     "manage/city-delivery-tariffs",

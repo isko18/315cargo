@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from city_delivery.services import suggested_points_count
 from common.cargo_scoping import bound_pickup_id
 from common.permissions import HasTabAccess, IsCargoManager, IsSuperOwner
 from orders.models import Order
@@ -296,6 +297,7 @@ class CargoDashboardAPIView(APIView):
             "issued_weight_kg": _num(issued_all["weight"]),
             "total_weight_kg": _num(totals_all["weight"]),
             "potential_revenue_kgs": _num(totals_all["revenue"]),
+            "suggested_points_count": suggested_points_count(cargo.id, pickup_id),
         }
         return Response(data)
 

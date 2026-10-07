@@ -455,6 +455,10 @@ class CargoDashboardSerializer(serializers.Serializer):
     )
     orders_count = serializers.IntegerField()
     pickup_points_count = serializers.IntegerField()
+    suggested_points_count = serializers.IntegerField(
+        help_text="Живые заявки на доставку с предложенной клиентом точкой, "
+        "которую ещё не перевели в справочник."
+    )
 
     # Пары ключей-синонимов: слева историческое имя (его читает веб-панель),
     # справа то, что уже читает мобильная. Значения одинаковые.
