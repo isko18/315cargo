@@ -1,0 +1,8 @@
+[Unit]
+Description=315CARGO: выход клиентов, у которых все push-токены мёртвые
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/315cargo
+ExecStart=/home/315cargo/venv/bin/python -W ignore manage.py force_relogin_dead_push --apply
