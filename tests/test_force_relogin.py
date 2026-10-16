@@ -215,3 +215,75 @@ def test_probe_classifies_fcm_answers(monkeypatch):
     monkeypatch.setattr(messaging, "send_each", fake_send_each)
 
     assert probe_tokens(["a", "b", "c"]) == {"a": True, "b": False, "c": None}
+
+
+# --- токены уже погашены сервером ---
+
+
+@pytest.mark.django_db
+def test_client_whose_tokens_server_already_deactivated_is_logged_out(fcm):
+    """Самый частый случай, и раньше команда его не видела.
+
+    Сервер сам гасит токен, получив NotRegistered при обычной отправке. Клиент
+    остаётся в приложении без единого активного токена, пуши не уходят вовсе.
+    """
+    user = _client()
+    DeviceToken.objects.create(user=user, token="gone", platform="ios", is_active=False)
+    refresh = RefreshToken.for_user(user)
+
+    call_command("force_relogin_dead_push", "--apply")
+
+    assert _blacklisted(refresh)
+
+
+@pytest.mark.django_db
+def test_already_logged_out_client_is_left_alone(fcm):
+    """Без живой сессии делать нечего: при входе токен и так зарегистрируется."""
+    from common.models import AuditLog
+
+    user = _client()
+    DeviceToken.objects.create(user=user, token="gone", platform="ios", is_active=False)
+    refresh = RefreshToken.for_user(user)
+    refresh.blacklist()  # клиент уже вышел сам
+
+    call_command("force_relogin_dead_push", "--apply")
+
+    assert not AuditLog.objects.filter(target_user=user).exists()
+
+
+@pytest.mark.django_db
+def test_client_who_never_registered_a_device_is_not_kicked_every_night(fcm):
+    """Без токена в истории вход ничего не даст — скорее всего, не дал разрешение."""
+    user = _client()
+    refresh = RefreshToken.for_user(user)
+
+    call_command("force_relogin_dead_push", "--apply")
+
+    assert not _blacklisted(refresh)
+
+
+@pytest.mark.django_db
+def test_deleted_account_is_not_touched(fcm):
+    user = _client()
+    user.phone = f"deleted-{user.id}"
+    user.is_active = False
+    user.save(update_fields=["phone", "is_active"])
+    _token(user, "dead-del")
+    fcm["dead-del"] = DEAD
+    refresh = RefreshToken.for_user(user)
+
+    call_command("force_relogin_dead_push", "--apply")
+
+    assert not _blacklisted(refresh)
+
+
+@pytest.mark.django_db
+def test_client_with_one_live_token_among_dead_ones_stays(fcm):
+    user = _client()
+    DeviceToken.objects.create(user=user, token="old", platform="ios", is_active=False)
+    _token(user, "live")
+    refresh = RefreshToken.for_user(user)
+
+    call_command("force_relogin_dead_push", "--apply")
+
+    assert not _blacklisted(refresh)

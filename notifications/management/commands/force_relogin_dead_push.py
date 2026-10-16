@@ -46,15 +46,22 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         User = get_user_model()
+        now = timezone.now()
+        # Только те, чьё приложение хоть раз регистрировало устройство: без
+        # единого токена в истории повторный вход ничего не даст — скорее всего,
+        # человек не разрешил уведомления, и его выкидывало бы каждую ночь.
         clients = (
             User.objects.filter(
+                is_active=True,
                 is_staff=False,
                 is_superuser=False,
                 is_cargo_admin=False,
                 is_china_staff=False,
-                device_tokens__is_active=True,
+                device_tokens__isnull=False,
             )
             .exclude(phone__in=list(settings.OTP_TEST_NUMBERS.keys()))
+            # Удалённый аккаунт обезличен в «deleted-<id>»; выкидывать некого.
+            .exclude(phone__startswith="deleted-")
             .distinct()
         )
 
@@ -63,6 +70,23 @@ class Command(BaseCommand):
             is_active=True, user__in=clients
         ).values_list("user_id", "token"):
             tokens_by_user[user_id].append(token)
+
+        # Клиент без единого активного токена — самый частый случай, и раньше
+        # команда его не видела: сервер сам гасит токен, получив от FCM
+        # NotRegistered при обычной отправке. Человек остаётся в приложении,
+        # пуши ему не уходят вовсе, и ничего не заставит приложение прислать
+        # новый токен. Берём таких, только пока сессия жива — уже вышедший и
+        # так зарегистрирует токен при следующем входе.
+        signed_in = set(
+            OutstandingToken.objects.filter(
+                user__in=clients, expires_at__gt=now, blacklistedtoken__isnull=True
+            ).values_list("user_id", flat=True)
+        )
+        unreachable = {
+            uid: []
+            for uid in clients.values_list("id", flat=True)
+            if uid not in tokens_by_user and uid in signed_in
+        }
 
         verdicts = services.probe_tokens(
             [t for tokens in tokens_by_user.values() for t in tokens]
@@ -81,6 +105,10 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Клиентов с активными токенами проверено: {len(tokens_by_user)}")
         self.stdout.write(f"Ни одного рабочего токена: {len(dead_users)}")
+        self.stdout.write(
+            f"В приложении, но все токены уже погашены сервером: {len(unreachable)}"
+        )
+        dead_users.update(unreachable)
         if unknown:
             self.stdout.write(f"Пропущено из-за неясного ответа FCM: {unknown}")
 
@@ -90,7 +118,6 @@ class Command(BaseCommand):
             )
             return
 
-        now = timezone.now()
         blacklisted = 0
         for user_id, tokens in dead_users.items():
             outstanding = OutstandingToken.objects.filter(
@@ -106,7 +133,11 @@ class Command(BaseCommand):
                 AuditLog.Action.USER_LOGOUT,
                 target_user=User(pk=user_id),
                 description="Принудительный выход: все push-токены мёртвые",
-                metadata={"dead_tokens": len(tokens), "reason": "dead_push_tokens"},
+                metadata={
+                    "dead_tokens": len(tokens),
+                    # Пусто — токены погасил сервер раньше, при отправке пуша.
+                    "reason": "dead_push_tokens" if tokens else "no_active_push_tokens",
+                },
             )
 
         self.stdout.write(
