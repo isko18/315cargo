@@ -25,6 +25,7 @@ import {
   FilterPanel,
   formError,
   Input,
+  Modal,
   PageHeader,
   Segmented,
   type SegmentedOption,
@@ -80,6 +81,16 @@ export default function WarehousePage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Сортировка. Принятые коробки стоят в «Сортируется», клиенту не сообщено.
+  // Плашка видна при любых фильтрах: разобранный товар легко забыть отдать,
+  // и тогда клиент так и не узнает, что посылка ждёт его.
+  const [sortingCount, setSortingCount] = useState<number | null>(null);
+  const [readySel, setReadySel] = useState<Set<number>>(new Set());
+  const [confirmReady, setConfirmReady] = useState(false);
+  const [readyBusy, setReadyBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const sortingMode = status === 'sorting';
+
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(t);
@@ -113,7 +124,53 @@ export default function WarehousePage() {
         setList(null);
       })
       .finally(() => setLoading(false));
-  }, [debounced, status, pending, effectivePickup, scope, dateFrom, dateTo]);
+  }, [debounced, status, pending, effectivePickup, scope, dateFrom, dateTo, reloadKey]);
+
+  // Счётчик сортировки — отдельным запросом: от фильтров списка он не зависит.
+  useEffect(() => {
+    const params = new URLSearchParams({ status: 'sorting', limit: '1' });
+    if (effectivePickup) params.set('pickup_point', String(effectivePickup));
+    get(`/api/parcels/?${params.toString()}`)
+      .then((d: any) => setSortingCount(typeof d?.count === 'number' ? d.count : 0))
+      .catch(() => setSortingCount(null));
+  }, [effectivePickup, reloadKey]);
+
+  // В режиме сортировки по умолчанию отмечено всё: обычно разбирают машину
+  // целиком. Снять галочку — значит оставить коробку на потом.
+  useEffect(() => {
+    setReadySel(
+      sortingMode && list
+        ? new Set(list.filter((p) => p.status === 'sorting').map((p) => p.id))
+        : new Set()
+    );
+  }, [list, sortingMode]);
+
+  const readyParcels = (list ?? []).filter((p) => readySel.has(p.id));
+  const readyClients = new Set(readyParcels.map((p) => p.client_code).filter(Boolean)).size;
+
+  async function markReady() {
+    setReadyBusy(true);
+    try {
+      const r = await post<{ updated: number; errors: { id: number; error: string }[] }>(
+        '/api/manage/parcels/bulk-status/',
+        { ids: [...readySel], status: 'at_pickup_point' }
+      );
+      if (r.errors.length) {
+        toast.error(
+          t('wh.readyPartial'),
+          `${t('wh.readyDone')}: ${r.updated}. ${t('wh.readyFailed')}: ${r.errors.length}`
+        );
+      } else {
+        toast.success(t('wh.readyOk'), `${t('wh.readyDone')}: ${r.updated}`);
+      }
+      setConfirmReady(false);
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      toast.error(t('toast.error'), formError(e));
+    } finally {
+      setReadyBusy(false);
+    }
+  }
 
   const summary = useMemo(() => {
     const rows = list ?? [];
@@ -199,6 +256,52 @@ export default function WarehousePage() {
       toast.error(t('toast.error'), message);
     }
   }
+
+  const allReadySelected =
+    sortingMode && (list ?? []).some((p) => p.status === 'sorting') &&
+    (list ?? []).filter((p) => p.status === 'sorting').every((p) => readySel.has(p.id));
+
+  function toggleReady(id: number) {
+    setReadySel((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const selectColumn: Column<Parcel> = {
+    key: 'ready',
+    width: 44,
+    cardLabel: '',
+    mobile: 'corner',
+    header: (
+      <input
+        type="checkbox"
+        className="tbl-check"
+        aria-label={t('wh.readySelectAll')}
+        checked={allReadySelected}
+        onChange={() =>
+          setReadySel(
+            allReadySelected
+              ? new Set()
+              : new Set((list ?? []).filter((p) => p.status === 'sorting').map((p) => p.id))
+          )
+        }
+      />
+    ),
+    render: (p) =>
+      p.status === 'sorting' ? (
+        <input
+          type="checkbox"
+          className="tbl-check"
+          aria-label={`${t('wh.readySelectOne')} ${p.track_number}`}
+          checked={readySel.has(p.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleReady(p.id)}
+        />
+      ) : null,
+  };
 
   const columns: Column<Parcel>[] = [
     {
@@ -306,6 +409,26 @@ export default function WarehousePage() {
         }
       />
 
+      {sortingCount ? (
+        <div className="sorting-banner tone-amber mb-lg" role="status">
+          <div className="sorting-banner-text">
+            <b>
+              {t('wh.sortingNow')}: {sortingCount}
+            </b>
+            <span className="muted">{t('wh.sortingHint')}</span>
+          </div>
+          {sortingMode ? (
+            <Button onClick={() => setConfirmReady(true)} disabled={readySel.size === 0}>
+              {t('wh.readyBtn')} ({readySel.size})
+            </Button>
+          ) : (
+            <Button variant="secondary" onClick={() => setStatus('sorting')}>
+              {t('wh.sortingShow')}
+            </Button>
+          )}
+        </div>
+      ) : null}
+
       <StatGrid className="mb-lg">
         <Stat icon={<IconBox size={19} />} tone="blue" label={`${t('wh.statParcels')}${hasFilters ? ` (${t('wh.statFilter')})` : ''}`} value={summary.count} />
         <Stat icon={<IconWarehouse size={19} />} tone="amber" label={t('wh.statNoClient')} value={summary.noClient} hint={t('wh.statNoClientHint')} />
@@ -392,7 +515,7 @@ export default function WarehousePage() {
           </CardBody>
         ) : (
           <DataTable
-            columns={columns}
+            columns={sortingMode ? [selectColumn, ...columns] : columns}
             rows={list}
             loading={loading}
             getRowKey={(p) => p.id}
@@ -411,6 +534,30 @@ export default function WarehousePage() {
       </Card>
 
       {selected && <ParcelDrawer parcel={selected} onClose={() => setSelected(null)} />}
+
+      {confirmReady && (
+        <Modal
+          title={t('wh.readyConfirmTitle')}
+          size="sm"
+          onClose={() => !readyBusy && setConfirmReady(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setConfirmReady(false)} disabled={readyBusy}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={markReady} loading={readyBusy}>
+                {t('wh.readyBtn')}
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {t('wh.readyConfirmParcels')}: <b>{readyParcels.length}</b>, {t('wh.readyConfirmClients')}:{' '}
+            <b>{readyClients}</b>.
+          </p>
+          <p className="muted">{t('wh.readyConfirmText')}</p>
+        </Modal>
+      )}
     </div>
   );
 }

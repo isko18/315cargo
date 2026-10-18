@@ -29,7 +29,10 @@ import {
 
 // Приём на стороне карго = 2-й скан = прибытие в ПВЗ. Промежуточные статусы
 // (в пути, прибыл в КР и т.п.) ставятся автоматически, вручную не выбираются.
-const RECEIVE_STATUS = 'at_pickup_point';
+// Приёмка ставит «Сортируется», а не «В ПВЗ»: клиенту ничего не уходит, пока
+// коробки не разложены. «Можете забрать» в момент разгрузки приводило людей
+// к неразобранной куче. Уведомление отправляет «Готов к выдаче» на «Складе».
+const RECEIVE_STATUS = 'sorting';
 
 const RESULT_TONE: Record<string, 'blue' | 'green' | 'amber' | 'gray'> = {
   updated: 'blue',
@@ -317,7 +320,7 @@ export default function ScanPage() {
           description={t('scan.cardDesc')}
           actions={
             <div className="cluster gap-sm">
-              <Badge variant="violet" dot>{t('status.at_pickup_point')}</Badge>
+              <Badge variant="amber" dot>{t('status.sorting')}</Badge>
               {activePoint ? (
                 <Badge variant="plain">{activePoint.title}</Badge>
               ) : (

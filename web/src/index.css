@@ -704,6 +704,25 @@ td .num { font-variant-numeric: tabular-nums; font-weight: 600; }
 .cell-product { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .mono { font-variant-numeric: tabular-nums; letter-spacing: .3px; }
 
+/* Плашка «На сортировке» на складе: коробки приняты, клиенту не сообщено.
+   Тёплый тон, а не красный — это не ошибка, а незаконченная работа. */
+.sorting-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: var(--r-md);
+  /* Цвета из .tone-amber — так плашка сама подстраивается под тёмную тему. */
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--t);
+  background: var(--tb);
+}
+.sorting-banner-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+@media (max-width: 720px) {
+  .sorting-banner { flex-direction: column; align-items: stretch; gap: 10px; }
+  .sorting-banner button { width: 100%; }
+}
+
 /* Фильтры под кнопкой на телефоне. На широком экране кнопки нет вовсе:
    панель всегда открыта, прятать нечего. */
 .filter-panel-toggle { display: none; }

@@ -229,3 +229,14 @@ def test_china_operator_cannot_set_sorting(api_client, client_user):
     r = _scan(api_client, "SRT-CN", "sorting")
 
     assert r.status_code == 403
+
+
+@pytest.mark.django_db
+def test_sorting_scan_shows_up_in_receive_history(cargo_admin_client, client_user):
+    """Иначе принятые по-новому коробки пропадают из истории приёма оператора."""
+    _parcel(client_user, "customs", "SRT-HIST")
+    _scan(cargo_admin_client, "SRT-HIST", "sorting")
+
+    rows = cargo_admin_client.get("/api/history/?type=receive&limit=50").data["results"]
+
+    assert "SRT-HIST" in [r["track_number"] for r in rows]

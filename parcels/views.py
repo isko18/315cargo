@@ -246,7 +246,9 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
     pagination_class = OperationHistoryPagination
     queryset = ParcelStatusHistory.objects.none()
 
-    RECEIVE = Parcel.Status.AT_PICKUP_POINT
+    # Приём — и скан в сортировку, и «Готов к выдаче»: оба делает оператор
+    # ПВЗ. Без SORTING коробки, принятые по-новому, пропадали бы из его истории.
+    RECEIVE = (Parcel.Status.SORTING, Parcel.Status.AT_PICKUP_POINT)
     ISSUE = Parcel.Status.ISSUED
     CHINA = (Parcel.Status.ARRIVED_CHINA_WAREHOUSE, Parcel.Status.SENT_TO_KYRGYZSTAN)
 
@@ -255,7 +257,7 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
             return ParcelStatusHistory.objects.none()
         user = self.request.user
         qs = (
-            ParcelStatusHistory.objects.filter(status__in=(self.RECEIVE, self.ISSUE, *self.CHINA))
+            ParcelStatusHistory.objects.filter(status__in=(*self.RECEIVE, self.ISSUE, *self.CHINA))
             .select_related(
                 "parcel",
                 "parcel__user",
@@ -298,7 +300,7 @@ class OperationHistoryViewSet(ReadOnlyModelViewSet):
         # Тип операции.
         op_type = self.request.query_params.get("type")
         if op_type == "receive":
-            qs = qs.filter(status=self.RECEIVE)
+            qs = qs.filter(status__in=self.RECEIVE)
         elif op_type == "issue":
             qs = qs.filter(status=self.ISSUE)
         elif op_type == "china":

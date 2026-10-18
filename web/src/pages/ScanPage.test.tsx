@@ -32,8 +32,8 @@ const reply = (track: string) => ({
   parcel: {
     id: Math.floor(Math.random() * 1e6),
     track_number: track,
-    status: 'at_pickup_point',
-    status_display_name: 'В ПВЗ',
+    status: 'sorting',
+    status_display_name: 'Сортируется',
     client_code: null,
     user: null,
     weight: null,
@@ -55,6 +55,20 @@ describe('ScanPage — приём в ПВЗ', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('принимает в «Сортируется», а не в «В ПВЗ» — клиенту пока ничего не уходит', async () => {
+    // «Можете забрать» в момент разгрузки приводило людей к неразобранной куче.
+    // Если приёмка снова начнёт ставить at_pickup_point, пуши вернутся молча.
+    post.mockResolvedValue(reply('SORT1'));
+    renderPage();
+
+    await scanBarcode('SORT1');
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [url, body] = post.mock.calls[0];
+    expect(url).toBe('/api/parcels/scan/');
+    expect((body as { status: string }).status).toBe('sorting');
   });
 
   it('не теряет сканы, сделанные пока идёт запрос', async () => {
