@@ -375,7 +375,10 @@ class AdminCargoViewSet(ModelViewSet):
             row["pickup_point_id"]: row
             for row in parcels.values("pickup_point_id").annotate(
                 total=Count("id"),
-                at_warehouse=Count("id", filter=Q(status=AT, is_archived=False)),
+                # Сортировка — тоже на складе ПВЗ, просто ещё не разобрано.
+                at_warehouse=Count(
+                    "id", filter=Q(status__in=(AT, Parcel.Status.SORTING), is_archived=False)
+                ),
                 issued=Count("id", filter=Q(status=ISSUED)),
             )
         }

@@ -46,6 +46,7 @@ const STATUS_ORDER = [
   'arrived_kyrgyzstan',
   'in_storage',
   'sent_to_kyrgyzstan',
+  'sorting',
   'at_pickup_point',
   'city_delivery',
   'delivered',

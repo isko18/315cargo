@@ -25,6 +25,7 @@ export const STATUS: Record<string, { label: string; tone: Tone }> = {
   processing: { label: 'Обработка', tone: 'indigo' },
   arrived_topa: { label: 'Прибыл в Топа', tone: 'blue' },
   customs: { label: 'На таможне', tone: 'cyan' },
+  sorting: { label: 'Сортируется', tone: 'amber' },
   at_pickup_point: { label: 'В ПВЗ', tone: 'violet' },
   city_delivery: { label: 'Доставка по городу', tone: 'teal' },
   delivered: { label: 'Доставлен', tone: 'green' },

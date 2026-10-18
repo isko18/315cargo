@@ -69,6 +69,11 @@ def _stamp_notified(parcel):
     parcel.notified_at = now
 
 
+# Статусы, о которых клиенту не сообщаем: шаг виден в истории и таймлайне,
+# но пуша нет. Сортировка — коробка в ПВЗ, забрать ещё нельзя.
+SILENT_STATUSES = (Parcel.Status.SORTING,)
+
+
 @receiver(post_save, sender=Parcel)
 def create_status_history_and_notification(sender, instance, created, **kwargs):
     old_status = getattr(instance, "_old_status", None)
@@ -101,6 +106,10 @@ def send_parcel_status_notification(parcel):
     """
     if parcel.user_id is None:
         # Pending-посылки сканера ещё не привязаны к клиенту — уведомлять некого.
+        return False
+    if parcel.status in SILENT_STATUSES:
+        # Проверка здесь, а не в сигнале: сюда же приходит «ничья» посылка,
+        # нашедшая хозяина, — и в разборе она тоже не должна звенеть.
         return False
 
     display_name = parcel.get_status_display()

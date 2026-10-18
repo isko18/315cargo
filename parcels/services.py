@@ -41,12 +41,18 @@ _STATUS_ORDER = [
     # Последний авто-статус. Дальше — только реальный скан в ПВЗ, поэтому
     # ранг обязан быть ниже AT_PICKUP_POINT, иначе скан сочтут откатом.
     Parcel.Status.CUSTOMS,
+    # Разбор в ПВЗ — сразу перед выдачей: скан «сортируется» после таможни
+    # идёт вперёд, а не откатом.
+    Parcel.Status.SORTING,
     Parcel.Status.AT_PICKUP_POINT,
     Parcel.Status.CITY_DELIVERY,
     Parcel.Status.DELIVERED,
     Parcel.Status.ISSUED,
 ]
 STATUS_RANK = {s: i for i, s in enumerate(_STATUS_ORDER)}
+
+# Коробка физически в ПВЗ: на полке в разборе или уже готова к выдаче.
+IN_PICKUP_STATUSES = (Parcel.Status.SORTING, Parcel.Status.AT_PICKUP_POINT)
 STATUS_RANK[Parcel.Status.CANCELLED] = 999
 
 
@@ -256,7 +262,9 @@ def scan_parcel(
 
         # Приёмка в ПВЗ: фиксируем/уточняем физический ПВЗ и адрес — в т.ч. при
         # повторном скане (сканирует оператор → посылка физически у него).
-        if target_status == Parcel.Status.AT_PICKUP_POINT:
+        # Сортировка — тоже приёмка: коробка уже на полке этого ПВЗ, и без
+        # пункта она не попала бы в его склад у привязанного оператора.
+        if target_status in IN_PICKUP_STATUSES:
             pp = resolve_pickup(pickup_point, user=existing.user, actor=actor)
             if pp is not None and existing.pickup_point_id != pp.id:
                 existing.pickup_point = pp
@@ -291,7 +299,7 @@ def scan_parcel(
 
         location = ""
         received_pickup = None
-        if target_status == Parcel.Status.AT_PICKUP_POINT:
+        if target_status in IN_PICKUP_STATUSES:
             received_pickup = resolve_pickup(pickup_point, user=user, actor=actor)
             location = received_pickup.address if received_pickup else ""
 
