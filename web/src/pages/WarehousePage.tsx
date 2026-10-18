@@ -164,6 +164,10 @@ export default function WarehousePage() {
         toast.success(t('wh.readyOk'), `${t('wh.readyDone')}: ${r.updated}`);
       }
       setConfirmReady(false);
+      // Разобрано всё — возвращаем обычный склад, а не пустой экран
+      // «Посылок не найдено». Если часть оставили на потом, фильтр остаётся.
+      const left = (list ?? []).filter((p) => p.status === 'sorting' && !readySel.has(p.id));
+      if (!r.errors.length && left.length === 0) setStatus('');
       setReloadKey((k) => k + 1);
     } catch (e) {
       toast.error(t('toast.error'), formError(e));
